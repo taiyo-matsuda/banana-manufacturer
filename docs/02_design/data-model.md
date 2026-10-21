@@ -1,0 +1,234 @@
+# 設計: データモデル
+
+最終更新: 2026-10-21　要件: `../01_requirements.md` 4〜5章　実装: `../../supabase/migrations/`
+
+---
+
+## 1. 全体
+
+```
+organizations ─┬─ profiles（auth.users と 1:1）
+               ├─ fields ─┬─ soil_analyses ── soil_analysis_items
+               │          ├─ field_cultivar_params（圃場 × 品種の予測パラメータ上書き）
+               │          ├─ weather_hourly / weather_daily
+               │          └─ mats ── stems ─┬─ observations
+               │                            ├─ events（target_type/target_id で stem/mat/field を指す）
+               │                            ├─ photos（同上。observation_id / event_id は任意）
+               │                            └─ estimates
+               └─ recommendations（target_type/target_id）
+cultivars（全組織で共有）
+```
+
+## 2. 設計上の約束
+
+### 2.1 organization_id の非正規化
+すべてのテーブルに `organization_id` を持つ。理由は RLS のポリシーを全テーブルで
+`organization_id = current_org()` の1条件にするため。JOIN で親をたどるポリシーは行ごとに評価されて重く、ミスも入りやすい。
+
+整合性は **INSERT トリガーで親からコピーする**ことで保証する。アプリは `organization_id` を渡さない。
+
+| テーブル | コピー元 |
+|---|---|
+| mats, field_cultivar_params, soil_analyses, weather_* | fields |
+| stems | mats |
+| observations, estimates | stems |
+| soil_analysis_items | soil_analyses |
+| events, photos, recommendations | target_type に応じて stems / mats / fields |
+
+### 2.2 追記のみ
+`observations` と `events` は削除しない。UPDATE は `superseded_by` 列だけ許可する（トリガーで他の列の変更を拒否）。
+訂正は新しいレコードを追加し、元のレコードの `superseded_by` に新レコードの id を入れる。
+読み取り時は `superseded_by is null` の行だけを「現在の値」として扱う。
+
+### 2.3 推定は観測と別
+`estimates` は `model_version` と `computed_at` を持ち、再計算のたびに追記する。最新は `computed_at desc` の先頭。
+
+### 2.4 品種は株の属性
+`mats.cultivar_id` が必須。`fields` に品種は持たない。
+
+### 2.5 写真の参照の向き
+`photos` が `observation_id` / `event_id` を持つ。観測・イベント側に写真の配列は持たない。
+
+### 2.6 座標
+MVP では `lat` / `lng` の数値列。PostGIS は使わない（必要になったら移行）。
+`fields.boundary` は GeoJSON を jsonb で持つ（後回し）。
+
+## 3. テーブル
+
+### organizations
+| 列 | 型 | 備考 |
+|---|---|---|
+| id | uuid | PK |
+| name | text | |
+
+### profiles
+| 列 | 型 | 備考 |
+|---|---|---|
+| id | uuid | PK、`auth.users.id` |
+| organization_id | uuid | |
+| display_name | text | |
+| role | text | 当面 `owner` のみ |
+
+### cultivars（共有マスタ）
+| 列 | 型 | 備考 |
+|---|---|---|
+| id | uuid | |
+| name | text | unique。初期値「ドワーフナムワ」 |
+| base_temp_c | numeric | 既定 14.0 |
+| flowering_to_harvest_gdd | numeric | 既定 900 |
+| leaves_to_flowering | int | 未設定可 |
+
+### fields
+| 列 | 型 | MVP | 備考 |
+|---|---|---|---|
+| id, organization_id | uuid | 必須 | |
+| name | text | 必須 | 組織内で unique |
+| center_lat, center_lng | double | 必須 | 代表点 |
+| notes | text | 任意 | |
+| boundary | jsonb | 後回し | GeoJSON Polygon。筆ポリゴンから取り込む |
+| weather_lat, weather_lng | double | 後回し | 空なら center |
+| temperature_offset_c | numeric | 後回し | 既定 0 |
+
+### field_cultivar_params
+PK (field_id, cultivar_id)。`cultivars` の各値を上書きする nullable 列を持つ。
+
+### soil_analyses / soil_analysis_items
+- soil_analyses: id, organization_id, field_id, sampled_at, source_photo_id（任意）, note
+- soil_analysis_items: soil_analysis_id, item（'pH', 'EC', 'CEC', 'OM', 'N', 'P', 'K', 'Ca', 'Mg' …）, value, unit。(soil_analysis_id, item) unique
+
+### mats
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id, field_id | uuid | |
+| code | text | 例 `A-012`。(field_id, code) unique |
+| cultivar_id | uuid | 必須 |
+| lat, lng | double | |
+| planted_at | date | この位置に植えた日 |
+| origin_type | enum | `tissue_culture` / `sucker_purchased` / `sucker_transplant` |
+| origin_stem_id | uuid | 株分け元の茎（`sucker_transplant` のとき） |
+| status | enum | `active` / `removed` |
+
+### stems
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id, mat_id | uuid | |
+| generation | int | 親=1, 子=2, 孫=3 … |
+| parent_stem_id | uuid | 同じ株内の親茎 |
+| status | enum | `sucker` / `active` / `flowered` / `harvested` / `removed` / `transplanted` / `lost` |
+| started_at | date | 吸芽の発生日、または植え付け日 |
+| adopted_at | date | 栽培中として採用した日 |
+| initial_leaf_count | int | 採用時/植え付け時の葉数 |
+| first_broad_leaf_at | date | 幅広葉が出始めた日 |
+| bud_emerged_at, bagged_at, harvested_at, ended_at | date | イベントから更新される冗長項目（検索用） |
+
+制約: 株ごとに `status in ('active','flowered')` の茎は最大3本（トリガー）。
+
+状態遷移:
+```
+sucker ─┬─ sucker_adopted ──▶ active ── bud_emerged ──▶ flowered ── harvested ──▶ harvested
+        ├─ sucker_removed ──▶ removed
+        └─ sucker_transplanted ─▶ transplanted（転出先の mat が作られ、その generation=1 の stem は started_at を引き継ぐ）
+active / flowered ── damage(喪失) ──▶ lost
+```
+
+### observations（追記のみ）
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id, stem_id | uuid | |
+| type | enum | `leaves_new` / `leaves_current` / `pseudostem_girth_cm` / `height_cm` |
+| value | numeric | |
+| observed_at | timestamptz | |
+| observed_by | uuid | profiles.id |
+| note | text | |
+| superseded_by | uuid | 訂正レコードの id |
+
+### events（追記のみ）
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id | uuid | |
+| type | enum | 下表 |
+| target_type, target_id | enum, uuid | `stem` / `mat` / `field` |
+| occurred_at | timestamptz | |
+| recorded_by | uuid | |
+| payload | jsonb | 下表 |
+| note | text | |
+| superseded_by | uuid | |
+
+| type | target | payload |
+|---|---|---|
+| bud_emerged | stem | `{cumulative_leaves, leaves_current, girth_cm, earliest_at}` |
+| hands_counted | stem | `{hands}` |
+| bagged | stem | `{}` |
+| debudded | stem | `{}` |
+| harvested | stem | `{weight_kg}` |
+| leaves_removed | stem | `{count}` |
+| fertilized | mat | `{fertilizer, amount, unit, batch_id}`（一括入力は株ごとに展開。batch_id で束ねる） |
+| damage | stem / mat / field | `{kind: 倒伏/裂葉/折損/寒害/病害, severity: light/moderate/severe/lost}` |
+| sucker_emerged | stem | `{}`（stem は status=sucker で作られる） |
+| sucker_adopted | stem | `{initial_leaf_count}` |
+| sucker_removed | stem | `{}` |
+| sucker_transplanted | stem | `{to_mat_id}` |
+| stem_removed | stem | `{reason}` |
+| mat_removed | mat | `{reason}` |
+
+イベントから `stems.status` と日付列を更新するのはアプリ側の責務（同一トランザクション内で行う RPC を用意する）。
+
+### photos
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id | uuid | |
+| storage_path | text | unique |
+| taken_at | timestamptz | EXIF |
+| taken_by | uuid | |
+| lat, lng | double | EXIF または端末 GPS |
+| target_type, target_id | | 必須 |
+| observation_id, event_id | uuid | 任意 |
+| kind | enum | `side` / `bud` / `bunch` / `damage` / `other` |
+| upload_status | enum | `local` / `uploaded` |
+
+### weather_hourly / weather_daily
+- hourly: (field_id, ts, source) PK。temp_c, precip_mm, wind_max_ms
+- daily: (field_id, date, source) PK。t_mean, t_min, t_max, precip_mm, gdd（基準温度は品種で違うため t_mean も保持し、再計算できるようにする）
+
+### estimates
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id, stem_id | uuid | |
+| kind | enum | `harvest_date` / `bunch_weight_kg` / `cumulative_leaves` / `bud_date` |
+| value, lower, upper | numeric | 数値の推定 |
+| value_date, lower_date, upper_date | date | 日付の推定 |
+| model_version | text | |
+| inputs | jsonb | 計算に使った入力 |
+| computed_at | timestamptz | |
+
+### recommendations
+| 列 | 型 | 備考 |
+|---|---|---|
+| id, organization_id | uuid | |
+| kind | enum | `bag` / `debud` / `harvest_window` / `fertilize_after_harvest` / `remove_dead_leaves` / `inspect` |
+| target_type, target_id | | |
+| due_at | date | |
+| reason | text | |
+| status | enum | `open` / `done` / `dismissed` |
+| resolved_at, resolved_by | | |
+
+## 4. RLS
+
+| テーブル | select | insert | update | delete |
+|---|---|---|---|---|
+| organizations | 自組織 | × | × | × |
+| profiles | 自組織 | × | × | × |
+| cultivars | 全員 | × | × | × |
+| fields, field_cultivar_params, soil_*, mats, stems, weather_*, estimates, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| observations, events | 自組織 | 自組織 | superseded_by のみ（トリガーで制限） | × |
+| photos | 自組織 | 自組織 | 自組織（upload_status の更新） | × |
+
+## 5. 派生値の計算場所
+
+| 値 | どこで | 備考 |
+|---|---|---|
+| 累計葉数 | `src/lib/leaves.ts` | 画面表示のたびに観測から計算。必要なら view 化 |
+| 検算値と確認要否 | 同上 | |
+| 積算温度 | `src/lib/gdd.ts` + weather_daily | |
+| 収穫予測日、果房重量 | `src/lib/prediction/` → estimates に追記 | |
+| 提案 | `src/lib/recommendations/` → recommendations に追記 | |
