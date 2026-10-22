@@ -25,6 +25,21 @@ describe("validatePlaceMatsInput", () => {
     if (r.ok) expect(r.value.originType).toBe("tissue_culture");
   });
 
+  it("初期葉数は省略可（省略 = null）。入れると 0 以上の整数", () => {
+    const omitted = validatePlaceMatsInput(base);
+    if (omitted.ok) expect(omitted.value.initialLeafCount).toBeNull();
+    const empty = validatePlaceMatsInput({ ...base, initialLeafCount: "" });
+    if (empty.ok) expect(empty.value.initialLeafCount).toBeNull();
+    const given = validatePlaceMatsInput({ ...base, initialLeafCount: "3" });
+    expect(given.ok).toBe(true);
+    if (given.ok) expect(given.value.initialLeafCount).toBe(3);
+    expect(validatePlaceMatsInput({ ...base, initialLeafCount: "-1" })).toEqual({
+      ok: false,
+      error: "初期葉数は 0 以上の整数で入力してください",
+    });
+    expect(validatePlaceMatsInput({ ...base, initialLeafCount: "1.5" }).ok).toBe(false);
+  });
+
   it("苗の種類は組織培養 / 購入吸芽のみ（株分けはこの画面では使わない）", () => {
     expect(validatePlaceMatsInput({ ...base, originType: "sucker_purchased" }).ok).toBe(true);
     const r = validatePlaceMatsInput({ ...base, originType: "sucker_transplant" });

@@ -1,12 +1,15 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { cumulativeLeaves, type LeafObservation } from "@/lib/leaves";
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
+import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
 import { generationLabel, sortStemsByGeneration, stemStatusLabel } from "@/lib/stems/status";
 import { createClient } from "@/lib/supabase/server";
+import { StemForm } from "./stem-form";
 
-// 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順）。
-// 茎の登録（1-5）、累計葉数・予測収穫日（1-6 以降）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
+// 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
+// 葉数の記録（1-6）、予測収穫日（ステップ 3）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 export default function MatDetailPage({ params }: { params: Promise<{ matId: string }> }) {
   return (
@@ -53,7 +56,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   const [{ data: stems, error: stemsError }, originMat] = await Promise.all([
     supabase
       .from("stems")
-      .select("id, generation, status, started_at")
+      .select("id, generation, status, started_at, initial_leaf_count")
       .eq("mat_id", mat.id)
       .order("generation")
       .order("started_at"),
@@ -69,6 +72,30 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   ]);
 
   const sortedStems = sortStemsByGeneration(stems ?? []);
+
+  // 累計葉数 = 初期葉数 + Σ leaves_new（現在の値 = superseded_by が null の観測だけ）。
+  // leaves_new の記録 UI は 1-6 で追加する。1-5 時点では観測がないので = 初期葉数
+  const leavesByStem = new Map<string, LeafObservation[]>();
+  if (sortedStems.length > 0) {
+    const { data: observations } = await supabase
+      .from("observations")
+      .select("stem_id, type, value, observed_at")
+      .in(
+        "stem_id",
+        sortedStems.map((s) => s.id),
+      )
+      .eq("type", "leaves_new")
+      .is("superseded_by", null);
+    for (const o of observations ?? []) {
+      const list = leavesByStem.get(o.stem_id) ?? [];
+      list.push({ type: "leaves_new", value: Number(o.value), observedAt: new Date(o.observed_at) });
+      leavesByStem.set(o.stem_id, list);
+    }
+  }
+
+  // 茎の登録: 栽培中（active / flowered）が 3 本ならフォームを出さず理由を表示（DB の正本はトリガー）
+  const addCheck = canAddActiveStem(sortedStems);
+  const next = nextGeneration(sortedStems);
 
   return (
     <article className="flex flex-col gap-4">
@@ -143,13 +170,29 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
                   <span className="font-medium">{generationLabel(s.generation)}</span>
                   <span className="ml-2 text-xs text-zinc-500">第 {s.generation} 世代</span>
                 </span>
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {stemStatusLabel(s.status)}
+                <span className="flex flex-col items-end text-sm text-zinc-600 dark:text-zinc-400">
+                  <span data-testid="stem-status">{stemStatusLabel(s.status)}</span>
+                  <span>
+                    累計葉数{" "}
+                    <span className="font-medium text-zinc-900 dark:text-zinc-100" data-testid="stem-cumulative-leaves">
+                      {cumulativeLeaves(s.initial_leaf_count, leavesByStem.get(s.id) ?? [])}
+                    </span>{" "}
+                    枚
+                  </span>
                 </span>
               </li>
             ))}
           </ol>
         )}
+
+        {mat.status !== "removed" &&
+          (addCheck.ok ? (
+            <StemForm matId={mat.id} defaultPlantedAt={mat.planted_at} nextGeneration={next.generation} />
+          ) : (
+            <p className="text-sm text-zinc-500" data-testid="stem-add-blocked">
+              {addCheck.reason}
+            </p>
+          ))}
       </section>
     </article>
   );

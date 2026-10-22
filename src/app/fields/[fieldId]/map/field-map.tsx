@@ -17,6 +17,7 @@ import {
   MAT_ORIGIN_TYPES,
   type MatOriginType,
 } from "@/lib/mats/placement";
+import { parseInitialLeafCount } from "@/lib/stems/registration";
 import { placeMats, type PlacedMat } from "./actions";
 
 export type FieldMapProps = {
@@ -55,6 +56,8 @@ type GridForm = {
   cultivarId: string;
   plantedAt: string;
   originType: MatOriginType;
+  // 初期葉数（省略可）。入れると株と同時に最初の茎も作る（1-5）
+  initialLeafCount: string;
 };
 
 const DEFAULT_SPACING_M = "3";
@@ -171,6 +174,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     cultivarId: defaultCultivarId,
     plantedAt: todayLocal(),
     originType: "tissue_culture",
+    initialLeafCount: "",
   }));
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -352,6 +356,8 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     if (!singlePoint) return;
     if (!form.cultivarId) return setError("品種を選んでください");
     if (!form.plantedAt) return setError("植え付け日を入力してください");
+    const leaves = parseInitialLeafCount(form.initialLeafCount);
+    if (!leaves.ok) return setError(leaves.error);
     const point = singlePoint;
     setError(null);
     startSaving(async () => {
@@ -361,6 +367,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
         plantedAt: form.plantedAt,
         originType: form.originType,
         points: [point],
+        initialLeafCount: form.initialLeafCount,
       });
       if (!result.ok) {
         setError(result.error);
@@ -385,6 +392,8 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     if (!(spacingM > 0)) return setError("株間は 0 より大きい数で入力してください");
     if (!form.cultivarId) return setError("品種を選んでください");
     if (!form.plantedAt) return setError("植え付け日を入力してください");
+    const leaves = parseInitialLeafCount(form.initialLeafCount);
+    if (!leaves.ok) return setError(leaves.error);
     setError(null);
     const bearing = bearingDeg(origin, direction);
     setPreview(gridPoints({ origin, bearing, spacingM, rows, perRow }));
@@ -404,6 +413,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
         plantedAt: form.plantedAt,
         originType: form.originType,
         points,
+        initialLeafCount: form.initialLeafCount,
       });
       if (!result.ok) {
         setError(result.error);
@@ -472,6 +482,23 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
           ))}
         </div>
       </fieldset>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>初期葉数</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          name="initialLeafCount"
+          value={form.initialLeafCount}
+          onChange={(e) => setForm({ ...form, initialLeafCount: e.target.value })}
+          className={inputClass}
+          placeholder="省略可"
+        />
+        <span className="text-xs text-zinc-500">
+          入れると株と同時に最初の茎も登録する（全株に同じ値。例外は株の詳細で直す）。省略すると茎は後から株の詳細で登録する
+        </span>
+      </label>
     </>
   );
 

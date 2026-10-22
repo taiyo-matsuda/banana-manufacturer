@@ -1,5 +1,6 @@
 // 株の一括配置（格子）の入力検証。Server Action から呼ぶ純粋関数。
 import type { LatLng } from "@/lib/geo";
+import { parseInitialLeafCount } from "../stems/leaf-count";
 
 export const MAT_ORIGIN_TYPES = ["tissue_culture", "sucker_purchased"] as const;
 export type MatOriginType = (typeof MAT_ORIGIN_TYPES)[number];
@@ -18,6 +19,8 @@ export type PlaceMatsInput = {
   plantedAt: string; // YYYY-MM-DD
   originType: string;
   points: LatLng[];
+  // 初期葉数（省略可）。入れると株と同時に最初の茎（generation=1）も作る（要件 UC-1「一括で同じ値を入れる」）
+  initialLeafCount?: string;
 };
 
 export type ValidPlaceMatsInput = {
@@ -26,6 +29,7 @@ export type ValidPlaceMatsInput = {
   plantedAt: string;
   originType: MatOriginType;
   points: LatLng[];
+  initialLeafCount: number | null;
 };
 
 export type PlaceMatsValidation =
@@ -51,6 +55,8 @@ export function validatePlaceMatsInput(input: PlaceMatsInput): PlaceMatsValidati
   if (!isValidDateString(input.plantedAt))
     return { ok: false, error: "植え付け日を YYYY-MM-DD で入力してください" };
   if (!isMatOriginType(input.originType)) return { ok: false, error: "苗の種類を選んでください" };
+  const leaves = parseInitialLeafCount(input.initialLeafCount);
+  if (!leaves.ok) return { ok: false, error: leaves.error };
   if (!Array.isArray(input.points) || input.points.length === 0)
     return { ok: false, error: "配置する株がありません" };
   if (input.points.length > MAX_MATS_PER_PLACEMENT)
@@ -77,6 +83,7 @@ export function validatePlaceMatsInput(input: PlaceMatsInput): PlaceMatsValidati
       plantedAt: input.plantedAt,
       originType: input.originType,
       points: input.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+      initialLeafCount: leaves.value,
     },
   };
 }

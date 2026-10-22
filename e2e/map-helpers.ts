@@ -41,3 +41,34 @@ export async function canvasCenter(map: Locator) {
   if (!box) throw new Error("地図の大きさが取れません");
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
+
+export async function dwarfNamwaId() {
+  const supabase = await supabaseAsA();
+  const { data, error } = await supabase
+    .from("cultivars")
+    .select("id")
+    .eq("name", "ドワーフナムワ")
+    .single();
+  if (error || !data) throw new Error(`品種を取得できません: ${error?.message}`);
+  return data.id as string;
+}
+
+// 株を DB に直接作る（株の追加 UI は 1-4 で検証済み。茎の検証は株の詳細だけを見たい）
+export async function createMat(fieldId: string, code: string, plantedAt = "2026-09-15") {
+  const supabase = await supabaseAsA();
+  const { data, error } = await supabase
+    .from("mats")
+    .insert({
+      field_id: fieldId,
+      code,
+      cultivar_id: await dwarfNamwaId(),
+      lat: CENTER.lat,
+      lng: CENTER.lng,
+      planted_at: plantedAt,
+      origin_type: "tissue_culture",
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(`株を作れません: ${error?.message}`);
+  return data.id as string;
+}

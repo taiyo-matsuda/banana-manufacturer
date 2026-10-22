@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { nextMatCodes } from "@/lib/mats/code";
 import { type PlaceMatsInput, validatePlaceMatsInput } from "@/lib/mats/placement";
+import { newActiveStemRow } from "@/lib/stems/registration";
 
 export type PlacedMat = { id: string; code: string; lat: number; lng: number };
 
@@ -20,7 +21,7 @@ export async function placeMats(input: PlaceMatsInput): Promise<PlaceMatsResult>
 
   const validation = validatePlaceMatsInput(input);
   if (!validation.ok) return validation;
-  const { fieldId, cultivarId, plantedAt, originType, points } = validation.value;
+  const { fieldId, cultivarId, plantedAt, originType, points, initialLeafCount } = validation.value;
 
   // RLS により自組織の圃場しか見えない
   const { data: field, error: fieldError } = await supabase
@@ -68,7 +69,41 @@ export async function placeMats(input: PlaceMatsInput): Promise<PlaceMatsResult>
       return { ok: false, error: "株コードが重複しました。画面を再読み込みしてやり直してください" };
     return { ok: false, error: "株の保存に失敗しました。時間をおいて再度お試しください" };
   }
+  const mats = inserted ?? [];
+
+  // 初期葉数が入っていれば、株ごとに最初の茎（generation=1、active、started_at=adopted_at=植え付け日）も作る。
+  // 要件 UC-1「一括で同じ値を入れ、例外だけ直す」。省略したら茎は作らず、後から株の詳細で登録できる。
+  // 茎の insert に失敗したら株を残さない（作った株を消して失敗を返す。Supabase の REST にトランザクションはない）
+  if (initialLeafCount !== null && mats.length > 0) {
+    const stemRows = mats.map((m) =>
+      newActiveStemRow(
+        m.id,
+        { plantedAt, initialLeafCount },
+        { generation: 1, parentStemId: null },
+      ),
+    );
+    const { error: stemsError } = await supabase.from("stems").insert(stemRows);
+    if (stemsError) {
+      console.error("stems insert failed", { code: stemsError.code, message: stemsError.message });
+      const { error: rollbackError } = await supabase
+        .from("mats")
+        .delete()
+        .in(
+          "id",
+          mats.map((m) => m.id),
+        );
+      if (rollbackError) {
+        console.error("mats rollback failed", { code: rollbackError.code, message: rollbackError.message });
+        refresh();
+        return {
+          ok: false,
+          error: `株は保存されましたが茎を登録できませんでした（${mats[0]?.code}〜${mats.at(-1)?.code}）。株の詳細から茎を登録してください`,
+        };
+      }
+      return { ok: false, error: "茎の登録に失敗したため、株も保存していません。時間をおいて再度お試しください" };
+    }
+  }
 
   refresh();
-  return { ok: true, mats: inserted ?? [] };
+  return { ok: true, mats };
 }
