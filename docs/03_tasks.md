@@ -99,11 +99,13 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
     2. オンラインに戻すと同期され、未同期件数が 0 になり、サーバーに記録が存在する
     3. オフラインで記録した写真も同様に同期される
 
-- [ ] **1-10 PWA とアクセス制限**
-  - manifest、Service Worker、ホーム画面追加のための設定。Cloudflare Access の設定手順を `docs/` に書く
-  - 完了条件:
-    1. Lighthouse の PWA 項目（installable）が通る
-    2. オフラインでアプリの殻（シェル）が開く
+- [x] **1-10 PWA とアクセス制限**
+  - manifest、Service Worker、ホーム画面追加のための設定。Cloudflare Access の設定手順を `docs/04_ops/deploy.md` に書く
+  - Service Worker はアプリの殻（HTML / JS / CSS）だけを扱い、データ同期はしない（`offline-sync.md` 6 章）。Supabase への通信、Server Action の POST、`/_next/image`、`/api/` はキャッシュしない
+  - 完了条件（Lighthouse 12 以降は PWA カテゴリが廃止されたため、インストール可能の要件を直接検証する）:
+    1. インストール可能の要件を満たす: `/manifest.webmanifest` が配信され、`name` / `short_name` / `start_url` / `display: standalone` / `theme_color` / `icons`（192 と 512、`purpose: any` と `maskable`）を持つ。Service Worker が登録され、ページを制御している（`navigator.serviceWorker.controller` が non-null）。`start_url` が 200 を返す。iOS 用に `apple-touch-icon` と `apple-mobile-web-app-capable` 相当のメタがある
+    2. オフラインでアプリの殻が開く: オンラインで開いた茎の画面をオフラインにして再読み込みしても、キャッシュから画面が表示される（未訪問のページならオフライン用の案内ページ `/offline` が表示される）
+    3. Cloudflare Access の設定手順が `docs/04_ops/deploy.md` にある
 
 ---
 

@@ -3,11 +3,16 @@
 
 export const LOGIN_PATH = "/login";
 
+// 認証なしで開けるパス。/offline は Service Worker が圏外時に返す案内ページで、
+// install 時に（認証に関係なく）プリキャッシュできる必要がある（1-10）。
+export const PUBLIC_PATHS: readonly string[] = ["/offline"];
+
 export function resolveAuthRedirect(
   pathname: string,
   isAuthenticated: boolean,
 ): string | null {
   const isLoginPage = pathname === LOGIN_PATH;
+  if (PUBLIC_PATHS.includes(pathname)) return null;
   if (!isAuthenticated && !isLoginPage) return LOGIN_PATH;
   if (isAuthenticated && isLoginPage) return "/";
   return null;

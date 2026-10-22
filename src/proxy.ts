@@ -15,8 +15,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // 静的ファイル・画像最適化・favicon・manifest などは対象外
+  // 静的ファイル・画像最適化・favicon・manifest・Service Worker（sw.js）などは対象外
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

@@ -18,3 +18,15 @@ describe("resolveAuthRedirect", () => {
     expect(resolveAuthRedirect("/", true)).toBeNull();
   });
 });
+
+describe("resolveAuthRedirect（公開パス）", () => {
+  it("未ログインで /offline は /login に転送しない（SW がプリキャッシュできるように）", () => {
+    expect(resolveAuthRedirect("/offline", false)).toBeNull();
+  });
+  it("ログイン済みで /offline もそのまま", () => {
+    expect(resolveAuthRedirect("/offline", true)).toBeNull();
+  });
+  it("/offline の下のパスは公開しない", () => {
+    expect(resolveAuthRedirect("/offline/x", false)).toBe("/login");
+  });
+});
