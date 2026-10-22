@@ -26,6 +26,7 @@ cultivars（全組織で共有）
 `organization_id = current_org()` の1条件にするため。JOIN で親をたどるポリシーは行ごとに評価されて重く、ミスも入りやすい。
 
 整合性は **INSERT トリガーで親からコピーする**ことで保証する。アプリは `organization_id` を渡さない。
+`fields` は親がないため、列の既定値 `current_org()`（`0004_fields_default_org.sql`）で設定する。
 
 | テーブル | コピー元 |
 |---|---|
@@ -83,6 +84,7 @@ MVP では `lat` / `lng` の数値列。PostGIS は使わない（必要にな�
 |---|---|---|---|
 | id, organization_id | uuid | 必須 | |
 | name | text | 必須 | 組織内で unique |
+| code | text | 必須 | 圃場記号。英数字 1〜4 文字（大文字）。組織内で unique。株コード `圃場記号-連番` に使う（`0005_field_code.sql`） |
 | center_lat, center_lng | double | 必須 | 代表点 |
 | notes | text | 任意 | |
 | boundary | jsonb | 後回し | GeoJSON Polygon。筆ポリゴンから取り込む |

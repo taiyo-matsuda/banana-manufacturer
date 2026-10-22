@@ -7,7 +7,7 @@
 
 - 作業管理より **事実の蓄積** を優先する。
 - **観測（事実）・推定・提案の3層を分ける。** 観測とイベントは追記のみ（削除しない。訂正は新レコード＋ `superseded_by`）。推定は `model_version` と `computed_at` を持ち、再計算できる。
-- 全テーブルに `organization_id` を持たせる（意図的な非正規化。RLS を単純にするため）。子テーブルの `organization_id` は INSERT トリガーで親からコピーし、アプリからは渡さない。
+- 全テーブルに `organization_id` を持たせる（意図的な非正規化。RLS を単純にするため）。子テーブルの `organization_id` は INSERT トリガーで親からコピーし、アプリからは渡さない。fields だけは親がないので、organization_id は DB の既定値 current_org() で設定する（0004）。
 - 品種は **株（Mat）** の属性。圃場には品種の制約を置かない。
 - 写真は Photo テーブルが観測・イベントを参照する（逆向きにしない）。
 - MVP はスマホ（iPhone）の PWA。ネイティブアプリにはしない。Sign Up は無効。

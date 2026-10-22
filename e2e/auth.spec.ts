@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
-import { accountA, accountB, env, login, submitLogin } from "./helpers";
+import { accountA, accountB, env, login, randomFieldCode, submitLogin } from "./helpers";
 
 // タスク 1-1 Supabase 接続と認証。完了条件 1〜6 を1つずつ検証する。
 
@@ -86,7 +86,7 @@ test("6. 組織の分離: B では「テスト農園B」が表示され、A の 
   const fieldName = `E2E圃場-${test.info().project.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const inserted = await supabaseA
     .from("fields")
-    .insert({ name: fieldName, center_lat: 26.5, center_lng: 127.9 })
+    .insert({ name: fieldName, code: randomFieldCode(), center_lat: 26.5, center_lng: 127.9 })
     .select("id, organization_id, name")
     .single();
   expect(inserted.error).toBeNull();

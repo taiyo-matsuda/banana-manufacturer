@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "./login/actions";
@@ -10,6 +11,14 @@ export default function Home() {
       <Suspense fallback={<p className="text-sm text-zinc-500">読み込み中…</p>}>
         <OrganizationHeader />
       </Suspense>
+      <nav aria-label="設定" className="mt-6">
+        <Link
+          href="/fields"
+          className="flex min-h-14 items-center rounded-lg border border-zinc-300 px-4 text-base dark:border-zinc-700"
+        >
+          圃場の設定
+        </Link>
+      </nav>
     </main>
   );
 }

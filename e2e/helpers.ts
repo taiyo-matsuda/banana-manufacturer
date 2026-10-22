@@ -31,3 +31,12 @@ export async function login(page: Page, email: string, password: string) {
   await submitLogin(page, email, password);
   await expect(page).toHaveURL("/");
 }
+
+// 圃場記号（英数字 1〜4 文字、組織内で unique）をテストごとに一意にする。
+// 0005 のバックフィルが付けた `X001…` と衝突しないよう、X は使わない。
+export function randomFieldCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWYZ0123456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
