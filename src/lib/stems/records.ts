@@ -6,6 +6,7 @@
 // - 履歴は観測・イベント・写真を 1 つの時系列に混ぜ、新しい順に並べる
 import type { LeafObservation, LeavesRemovedEvent } from "../leaves";
 import { photoKindLabel } from "../photos";
+import { stemEventValueText } from "../stemEvents";
 
 // 記録ボタンを出す状態（茎の記録入力画面）
 export const RECORDABLE_STEM_STATUSES = ["active", "flowered"] as const;
@@ -83,19 +84,19 @@ export function observationValueText(type: string, value: number): string {
   }
 }
 
-// イベントの payload の表示。既知のものは日本語、それ以外は key=value で並べる
+// イベントの payload の表示。既知のものは日本語（茎のイベント 1-8 は stemEvents.ts）、それ以外は key=value で並べる
 export function eventValueText(type: string, payload: Record<string, unknown> | null | undefined): string {
   const p = payload ?? {};
   switch (type) {
     case "leaves_removed":
       return typeof p.count === "number" ? `${p.count} 枚` : "";
+    case "bud_emerged":
     case "hands_counted":
-      return typeof p.hands === "number" ? `${p.hands} 段` : "";
-    case "harvested":
-      return typeof p.weight_kg === "number" ? `${p.weight_kg} kg` : "";
     case "bagged":
     case "debudded":
-      return "";
+    case "harvested":
+    case "damage":
+      return stemEventValueText(type, p);
     default:
       return Object.entries(p)
         .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)

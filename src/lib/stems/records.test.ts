@@ -60,7 +60,9 @@ describe("値の表示", () => {
     expect(eventValueText("leaves_removed", {})).toBe("");
     expect(eventValueText("harvested", { weight_kg: 12.5 })).toBe("12.5 kg");
     expect(eventValueText("bagged", {})).toBe("");
-    expect(eventValueText("damage", { kind: "倒伏", severity: "light" })).toBe("kind=倒伏 severity=light");
+    expect(eventValueText("damage", { kind: "lodging", severity: "light" })).toBe("倒伏・軽");
+    expect(eventValueText("bud_emerged", { cumulative_leaves: 12, leaves_current: 10, girth_cm: 45 })).toBe("累計葉数 12 枚・生葉数 10 枚・周囲長 45 cm");
+    expect(eventValueText("fertilized", { fertilizer: "鶏糞", amount: 2 })).toBe("fertilizer=鶏糞 amount=2");
   });
 
   it("日時は日本時間で分まで", () => {

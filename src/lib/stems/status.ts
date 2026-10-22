@@ -1,4 +1,5 @@
 // 茎の状態（stems.status）の表示文言。UI・DB に依存しない。
+// 0008_record_stem_event.sql の stem_status_label（RPC の例外メッセージ用）と同じ文言にする。
 
 export const STEM_STATUSES = [
   "sucker",
@@ -16,8 +17,8 @@ export const STEM_STATUS_LABELS: Record<StemStatus, string> = {
   active: "栽培中",
   flowered: "出蕾済み",
   harvested: "収穫済み",
-  removed: "除去",
-  transplanted: "株分け済み",
+  removed: "芽かき",
+  transplanted: "株分け",
   lost: "喪失",
 };
 

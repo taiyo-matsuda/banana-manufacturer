@@ -6,6 +6,11 @@ describe("stemStatusLabel", () => {
     for (const s of STEM_STATUSES) expect(stemStatusLabel(s)).not.toBe(s);
     expect(stemStatusLabel("active")).toBe("栽培中");
     expect(stemStatusLabel("flowered")).toBe("出蕾済み");
+    expect(stemStatusLabel("harvested")).toBe("収穫済み");
+    expect(stemStatusLabel("lost")).toBe("喪失");
+    expect(stemStatusLabel("removed")).toBe("芽かき");
+    expect(stemStatusLabel("transplanted")).toBe("株分け");
+    expect(stemStatusLabel("sucker")).toBe("吸芽");
   });
   it("未知の状態はそのまま返す", () => {
     expect(stemStatusLabel("unknown")).toBe("unknown");

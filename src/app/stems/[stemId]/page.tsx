@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { stemStatusLabel } from "@/lib/stems/status";
+import { EventRecord } from "./event-record";
 import { LeafRecord } from "./leaf-record";
 import { loadStem } from "./load";
 import { PhotoCapture } from "./photo-capture";
@@ -8,8 +9,8 @@ import { StemHeader } from "./stem-header";
 import { StemHistory } from "./stem-history";
 
 // 画面 4「茎の記録入力」（現場の主画面）: ヘッダ（株コード・世代・状態・累計葉数・検算の警告）、
-// leaves_new の +0/+1/+2、枯葉処理、現在の葉数、写真（1-7）、下部に履歴。
-// 出蕾などのイベント（1-8）、オフライン（1-9）は後のタスクで追加する。
+// leaves_new の +0/+1/+2、枯葉処理、現在の葉数、写真（1-7）、イベント（1-8: 出蕾・段数・袋掛け・摘蕾・収穫・被害）、下部に履歴。
+// オフライン（1-9）は後のタスクで追加する。
 // 栽培中（active / flowered）でない茎は記録ボタンを出さず、履歴へのリンクだけ。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 export default function StemPage({ params }: { params: Promise<{ stemId: string }> }) {
@@ -42,6 +43,7 @@ async function StemRecord({ params }: { params: Promise<{ stemId: string }> }) {
         <>
           <LeafRecord stemId={stem.id} />
           <PhotoCapture stemId={stem.id} />
+          <EventRecord stemId={stem.id} status={stem.status} defaultEarliestAt={stem.latestObservedOn} />
         </>
       ) : (
         <p className="text-sm text-zinc-500" data-testid="record-closed">

@@ -13,6 +13,7 @@ import {
   toLeafObservations,
   toLeavesRemoved,
 } from "@/lib/stems/records";
+import { latestDateJst } from "@/lib/stemEvents";
 import { createClient } from "@/lib/supabase/server";
 
 export type StemView = {
@@ -25,6 +26,7 @@ export type StemView = {
   byCheck: number | null;
   checkWarning: string | null;
   canRecord: boolean;
+  latestObservedOn: string | null; // 直近の観測日（JST、YYYY-MM-DD）。出蕾の「前回訪問日」の既定値
   history: HistoryEntry[];
 };
 
@@ -127,6 +129,7 @@ export async function loadStem(stemId: string): Promise<StemView> {
     byCheck,
     checkWarning: leafCheckWarning(cumulative, byCheck),
     canRecord: canRecordLeaves(stem.status),
+    latestObservedOn: latestDateJst(observationRows.map((o) => o.observed_at)),
     history: buildHistory(observationRows, eventRows, photoRows),
   };
 }
