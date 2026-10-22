@@ -55,6 +55,12 @@ async function FieldDetail({ params }: { params: Promise<{ fieldId: string }> })
           {field.center_lat}, {field.center_lng}
         </dd>
       </dl>
+      <Link
+        href={`/fields/${field.id}/map`}
+        className="mt-4 flex min-h-14 items-center rounded-lg border border-zinc-300 px-4 text-base dark:border-zinc-700"
+      >
+        地図（株の配置）
+      </Link>
     </article>
   );
 }

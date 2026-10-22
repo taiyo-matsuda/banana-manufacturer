@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Playwright の生成物（HTML レポート・トレース）
     "e2e-report/**",
     "test-results/**",
+    // MapLibre の worker（scripts/copy-maplibre-worker.mjs が node_modules からコピーする）
+    "public/maplibre/**",
   ]),
 ]);
 

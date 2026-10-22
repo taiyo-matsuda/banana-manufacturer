@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
-import { accountA, login, randomFieldCode } from "./helpers";
+import type { Page } from "@playwright/test";
+import { expect, noSession, randomFieldCode, test } from "./helpers";
 
-// 1-2 圃場の登録と一覧。テスト農園 A でログインして行う。
+// 1-2 圃場の登録と一覧。テスト農園 A でログイン済み（helpers の test がワーカーで 1 回だけ UI ログインし、
+// Cookie を共有する。Supabase Auth のサインインにはレート制限があるため、テストごとにはログインしない）。
 // 行は消さない（A は E2E 専用組織）ので、名前・記号は実行ごとに一意にする。
 // iphone / desktop の 2 プロジェクトが同じ組織で並行して走るため、行の総数ではなく名前・記号で絞って検証する。
 
@@ -10,8 +11,8 @@ function uniqueName() {
 }
 
 async function openFields(page: Page) {
-  const a = accountA();
-  await login(page, a.email, a.password);
+  await page.goto("/");
+  await expect(page).toHaveURL("/");
   // ホームから導線で /fields へ
   await page.getByRole("link", { name: "圃場の設定" }).click();
   await expect(page).toHaveURL("/fields");
@@ -32,9 +33,13 @@ async function fillAndSubmit(
 }
 
 
-test("未ログインで /fields を開くと /login に遷移する", async ({ page }) => {
-  await page.goto("/fields");
-  await expect(page).toHaveURL("/login");
+test.describe("未ログイン", () => {
+  test.use({ storageState: noSession });
+
+  test("未ログインで /fields を開くと /login に遷移する", async ({ page }) => {
+    await page.goto("/fields");
+    await expect(page).toHaveURL("/login");
+  });
 });
 
 test("1. 圃場を登録すると一覧に表示される", async ({ page }) => {

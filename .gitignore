@@ -20,6 +20,9 @@
 /.next/
 /out/
 
+# maplibre の worker（scripts/copy-maplibre-worker.mjs が node_modules からコピーする）
+/public/maplibre/
+
 # production
 /build
 
