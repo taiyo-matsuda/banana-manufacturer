@@ -13,6 +13,10 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
 - [x] **0-1 テスト基盤** — Vitest（`src/lib`）、Playwright（`e2e/`）、`npm run check` が動く
   - 完了条件: `npm run check` が成功する。`npx playwright test` でスモークテストが通る。
 
+- [x] **0-2 E2E の安定化**（1-3 の後に発生した不安定さの修正。コミット fb8a483、10036be）
+  - ログインを setup プロジェクトで 1 回ずつ行い storageState を共有（Supabase Auth のレート制限対策）、接続先を 127.0.0.1 に固定、E2E データの掃除、expect / action のタイムアウト 15 秒、ウォームアップ
+  - 完了条件: `npm run e2e` を 3 回連続で全件合格 → 2026-10-22 に 46/46 × 3 回で達成
+
 ---
 
 ## ステップ 1: 事実を記録できる
