@@ -67,15 +67,15 @@ Supabase の定期ジョブ (pg_cron) / Next.js の Route Handler
 | 環境 | 用途 |
 |---|---|
 | ローカル開発 | `npm run dev` ＋ Supabase（開発用プロジェクト、または Supabase CLI のローカル環境） |
-| E2E テスト | Playwright。開発用 Supabase にテスト用アカウント（`E2E_EMAIL` / `E2E_PASSWORD`）。テストが作るデータはテスト用組織に閉じ込める |
+| E2E テスト | Playwright。同じ Supabase プロジェクト内のテスト用組織 2 つ（テスト農園 A / B、`0003_test_orgs.sql`）。A をほぼ全テストで使い、B は「A のデータが見えない」という組織分離の検証にだけ使う。本人のアカウントは E2E に使わない |
 | 本番 | Vercel ＋ 本番 Supabase ＋ Cloudflare Access |
 
-環境変数（`.env.local`、コミットしない）:
+環境変数（`.env.local`、コミットしない。雛形は `.env.example`）:
 ```
 NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-E2E_EMAIL
-E2E_PASSWORD
+NEXT_PUBLIC_SUPABASE_ANON_KEY   # Publishable key（公開用）。service_role / Secret key は絶対に置かない
+E2E_EMAIL / E2E_PASSWORD        # テスト農園 A
+E2E_B_EMAIL / E2E_B_PASSWORD    # テスト農園 B
 ```
 
 ## 8. ディレクトリ
