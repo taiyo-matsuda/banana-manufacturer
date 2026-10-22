@@ -17,11 +17,15 @@ export default defineConfig({
   // Server Action の応答が遅くなるので固定する（iphone / desktop の 2 プロジェクトが 1 つずつ走る）
   workers: 2,
   retries: 0,
+  // 開発サーバー（Turbopack）＋リモートの Supabase で、並行実行中は画面の表示や Server Action の応答が
+  // 既定の 5 秒を超えることがある（遅い時間帯は全テストが 2〜3 倍遅くなる）。個別に延ばすのではなく全体で 15 秒にする
+  expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never", outputFolder: "e2e-report" }]],
   use: {
     // localhost ではなく 127.0.0.1 にする。localhost は IPv6 の [::1] で繋がり、E2E 1 回で数千の TIME_WAIT が
     // IPv6 の動的ポート（16,384 個）を使い切って `fetch failed` になった（Supabase への fetch も IPv6 で出ていく）
     baseURL: "http://127.0.0.1:3000",
+    actionTimeout: 15_000,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
