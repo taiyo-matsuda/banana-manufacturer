@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { distanceM } from "../src/lib/geo";
-import { expect, noSession, randomFieldCode, supabaseAsA, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, noSession, randomFieldCode, supabaseAsA, test } from "./helpers";
 
 // 1-3 圃場マップと株の一括配置。完了条件 1〜5 を 1 つずつ検証する。
 // テスト農園 A でログイン済み（helpers の test がワーカーで 1 回だけ UI ログインし、Cookie を共有する）。
@@ -32,9 +32,11 @@ async function openMap(page: Page, fieldId: string) {
   await page.goto(`/fields/${fieldId}`);
   await page.getByRole("link", { name: "地図（株の配置）" }).click();
   await expect(page).toHaveURL(`/fields/${fieldId}/map`);
+  // 地図は Client Component（next/dynamic, ssr:false）で、開発サーバーでは初回表示に Turbopack のコンパイルと
+  // MapLibre の読み込みがかかる。他のテストと並行して走ると 5 秒を超えることがあるので ACTION_TIMEOUT で待つ
   const map = page.getByTestId("field-map");
-  await expect(map).toBeVisible();
-  await expect(map).toHaveAttribute("data-map-ready", "true");
+  await expect(map).toBeVisible({ timeout: ACTION_TIMEOUT });
+  await expect(map).toHaveAttribute("data-map-ready", "true", { timeout: ACTION_TIMEOUT });
   return map;
 }
 
@@ -90,7 +92,8 @@ async function readPoints(markers: Locator) {
 async function confirmAndWait(page: Page, expectedTotal: number) {
   await page.getByTestId("place-confirm").click();
   await expect(page.getByTestId("place-notice")).toContainText("株を保存しました");
-  await expect(page.getByTestId("preview-marker")).toHaveCount(0);
+  // 確定は Server Action（insert ＋ refresh）。応答まで ACTION_TIMEOUT 待つ
+  await expect(page.getByTestId("preview-marker")).toHaveCount(0, { timeout: ACTION_TIMEOUT });
   await expect(page.getByTestId("mat-marker")).toHaveCount(expectedTotal);
   await expect(page.getByTestId("mat-count")).toHaveText(`株 ${expectedTotal}`);
 }

@@ -1,10 +1,11 @@
 import type { Page } from "@playwright/test";
-import { expect, noSession, randomFieldCode, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, noSession, randomFieldCode, test } from "./helpers";
 
 // 1-2 圃場の登録と一覧。テスト農園 A でログイン済み（helpers の test がワーカーで 1 回だけ UI ログインし、
 // Cookie を共有する。Supabase Auth のサインインにはレート制限があるため、テストごとにはログインしない）。
 // 行は消さない（A は E2E 専用組織）ので、名前・記号は実行ごとに一意にする。
 // iphone / desktop の 2 プロジェクトが同じ組織で並行して走るため、行の総数ではなく名前・記号で絞って検証する。
+// 登録（Server Action）の直後の検証は ACTION_TIMEOUT で待つ（Supabase への往復 5 回＋再描画で既定の 5 秒を超えることがある）。
 
 function uniqueName() {
   return `E2E圃場-${test.info().project.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -50,7 +51,7 @@ test("1. 圃場を登録すると一覧に表示される", async ({ page }) => 
   await fillAndSubmit(page, { name, code, lat: "26.5", lng: "127.9" });
 
   const row = page.getByTestId("field-row").filter({ hasText: name });
-  await expect(row).toHaveCount(1);
+  await expect(row).toHaveCount(1, { timeout: ACTION_TIMEOUT });
   await expect(row.getByTestId("field-code")).toHaveText(code);
   await expect(row.getByTestId("field-center")).toHaveText("26.5, 127.9");
   // 成功したらフォームが空に戻る
@@ -73,7 +74,9 @@ test("2a. 名前が空なら登録できず、理由が表示される", async (
 
   await fillAndSubmit(page, { name: "", code, lat: "26.5", lng: "127.9" });
 
-  await expect(page.getByTestId("field-error-name")).toHaveText("圃場の名前を入力してください");
+  await expect(page.getByTestId("field-error-name")).toHaveText("圃場の名前を入力してください", {
+    timeout: ACTION_TIMEOUT,
+  });
   await expect(page.getByTestId("field-row").filter({ hasText: code })).toHaveCount(0);
   // 他の入力値は保持される
   await expect(page.getByLabel("圃場記号")).toHaveValue(code);
@@ -85,7 +88,9 @@ test("2b. 代表点（緯度経度）が未指定なら登録できず、理由�
 
   await fillAndSubmit(page, { name, code: randomFieldCode(), lat: "", lng: "" });
 
-  await expect(page.getByTestId("field-error-lat")).toHaveText("代表点の緯度を入力してください");
+  await expect(page.getByTestId("field-error-lat")).toHaveText("代表点の緯度を入力してください", {
+    timeout: ACTION_TIMEOUT,
+  });
   await expect(page.getByTestId("field-error-lng")).toHaveText("代表点の経度を入力してください");
   await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(0);
 });
@@ -96,7 +101,9 @@ test("2c. 緯度経度が範囲外なら登録できず、理由が表示され�
 
   await fillAndSubmit(page, { name, code: randomFieldCode(), lat: "91", lng: "181" });
 
-  await expect(page.getByTestId("field-error-lat")).toHaveText("緯度は -90〜90 の範囲で入力してください");
+  await expect(page.getByTestId("field-error-lat")).toHaveText("緯度は -90〜90 の範囲で入力してください", {
+    timeout: ACTION_TIMEOUT,
+  });
   await expect(page.getByTestId("field-error-lng")).toHaveText("経度は -180〜180 の範囲で入力してください");
   await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(0);
 });
@@ -109,6 +116,7 @@ test("2d. 圃場記号が不正なら登録できず、理由が表示される"
 
   await expect(page.getByTestId("field-error-code")).toHaveText(
     "圃場記号は英数字 1〜4 文字で入力してください",
+    { timeout: ACTION_TIMEOUT },
   );
   await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(0);
 });
@@ -118,12 +126,16 @@ test("3. 同じ組織内で同じ名前の圃場は登録できない", async ({
   const name = uniqueName();
 
   await fillAndSubmit(page, { name, code: randomFieldCode(), lat: "26.5", lng: "127.9" });
-  await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(1);
+  await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(1, {
+    timeout: ACTION_TIMEOUT,
+  });
 
   // 同じ名前（記号は別）でもう一度
   await fillAndSubmit(page, { name, code: randomFieldCode(), lat: "26.6", lng: "128.0" });
 
-  await expect(page.getByTestId("field-error")).toHaveText("同じ名前の圃場がすでにあります");
+  await expect(page.getByTestId("field-error")).toHaveText("同じ名前の圃場がすでにあります", {
+    timeout: ACTION_TIMEOUT,
+  });
   await expect(page.getByTestId("field-row").filter({ hasText: name })).toHaveCount(1);
 });
 
@@ -132,11 +144,15 @@ test("3b. 同じ組織内で同じ圃場記号の圃場は登録できない", a
   const code = randomFieldCode();
 
   await fillAndSubmit(page, { name: uniqueName(), code, lat: "26.5", lng: "127.9" });
-  await expect(page.getByTestId("field-row").filter({ hasText: code })).toHaveCount(1);
+  await expect(page.getByTestId("field-row").filter({ hasText: code })).toHaveCount(1, {
+    timeout: ACTION_TIMEOUT,
+  });
 
   const name2 = uniqueName();
   await fillAndSubmit(page, { name: name2, code, lat: "26.6", lng: "128.0" });
 
-  await expect(page.getByTestId("field-error")).toHaveText("同じ圃場記号の圃場がすでにあります");
+  await expect(page.getByTestId("field-error")).toHaveText("同じ圃場記号の圃場がすでにあります", {
+    timeout: ACTION_TIMEOUT,
+  });
   await expect(page.getByTestId("field-row").filter({ hasText: name2 })).toHaveCount(0);
 });

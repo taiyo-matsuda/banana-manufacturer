@@ -68,6 +68,7 @@ Supabase の定期ジョブ (pg_cron) / Next.js の Route Handler
 |---|---|
 | ローカル開発 | `npm run dev` ＋ Supabase（開発用プロジェクト、または Supabase CLI のローカル環境） |
 | E2E テスト | Playwright。同じ Supabase プロジェクト内のテスト用組織 2 つ（テスト農園 A / B、`0003_test_orgs.sql`）。A をほぼ全テストで使い、B は「A のデータが見えない」という組織分離の検証にだけ使う。本人のアカウントは E2E に使わない |
+| E2E の安定化 | **ログインは共有する。** setup プロジェクト（`e2e/auth.setup.ts`）がテスト農園 A / B に 1 回ずつ UI ログインし、Cookie（`storageState`）と supabase-js 用のセッションを `e2e/.auth/`（gitignore）に保存。iphone / desktop は `dependencies: ["setup"]` で A の状態から始まり、B で見るテストは `test.use({ storageState: AUTH_STATE_B })`、未ログインの検証は `noSession`。ログイン画面を実際に通すのは auth.spec の 2 件だけ。DB を直接読み書きするテストは `supabaseAsA()` / `supabaseAsB()`（保存セッションを使い、サインインしない）。Supabase Auth のサインインは IP ごとにレート制限があり、テストごとにログインすると 1 回の実行で上限を超える。**その他:** `workers` は 2 に固定。登録・確定（Server Action）直後の検証は `ACTION_TIMEOUT`（15 秒）で待つ（1 回の登録で Supabase への往復 5 回が直列に走る）。setup の最後に E2E が作った圃場・株（名前が `E2E` で始まる）を消す（溜まると一覧が数百行になり refresh の応答が数百 KB になる）。開発サーバーと baseURL は `127.0.0.1`（IPv4）に固定する（`localhost` は IPv6 の [::1] で繋がる）。Windows では `e2e/global-setup.ts` が開発サーバー（:3000）向けの TIME_WAIT ソケットを数え、6,000 を超えていれば解放を待つ。通常は 1 回の実行で残るのは数百個で、この待ちに入ることはない。TIME_WAIT が解放されず約 9,000 個のまま詰まり、IPv6 の動的ポート（16,384 個）を使い切って Supabase への fetch まで `fetch failed` になった異常が一度あり、PC の再起動で解消した。地図画面（`/fields/[id]/map`）は Client Component で、開発サーバーでは初回表示に Turbopack のコンパイルと MapLibre の読み込みがかかるため、表示待ちも `ACTION_TIMEOUT` |
 | 本番 | Vercel ＋ 本番 Supabase ＋ Cloudflare Access |
 
 環境変数（`.env.local`、コミットしない。雛形は `.env.example`）:
