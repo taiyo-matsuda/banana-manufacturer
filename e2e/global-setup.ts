@@ -57,9 +57,16 @@ export async function cleanupTestFarmA(supabase: SupabaseClient): Promise<number
   if (selectError) throw new Error(`E2E の掃除: 圃場を取得できません: ${selectError.message}`);
   const ids = (fields ?? []).map((f) => f.id as string);
 
-  // URL 長の上限を避けて 100 件ずつ。mats は fields への FK が cascade でないので先に消す
+  // URL 長の上限を避けて 100 件ずつ。FK は cascade でないので stems → mats → fields の順に消す
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
+    const { data: mats, error: matsError } = await supabase.from("mats").select("id").in("field_id", chunk);
+    if (matsError) throw new Error(`E2E の掃除: 株を取得できません: ${matsError.message}`);
+    const matIds = (mats ?? []).map((m) => m.id as string);
+    for (let j = 0; j < matIds.length; j += 100) {
+      const matChunk = matIds.slice(j, j + 100);
+      await withRetry("茎を消せません", () => supabase.from("stems").delete().in("mat_id", matChunk));
+    }
     await withRetry("株を消せません", () => supabase.from("mats").delete().in("field_id", chunk));
     await withRetry("圃場を消せません", () => supabase.from("fields").delete().in("id", chunk));
   }

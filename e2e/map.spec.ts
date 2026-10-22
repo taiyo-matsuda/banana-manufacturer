@@ -1,50 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
 import { distanceM } from "../src/lib/geo";
-import { ACTION_TIMEOUT, expect, noSession, randomFieldCode, supabaseAsA, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, noSession, test } from "./helpers";
+import { canvasCenter, createField, openMap } from "./map-helpers";
 
 // 1-3 圃場マップと株の一括配置。完了条件 1〜5 を 1 つずつ検証する。
 // テスト農園 A でログイン済み（helpers の test がワーカーで 1 回だけ UI ログインし、Cookie を共有する）。
-// テストごとに新しい圃場を作る（行は消さないので名前・記号は一意にする）。
+// テストごとに新しい圃場を作る（補助関数は map-helpers.ts。名前は E2E で始め、setup の掃除で消える）。
 // Supabase Auth のサインインにはレート制限があるので、テストごとにサインインしない。
 // 地理院タイルの画像の到着は待たない（ネットワーク依存）。地図コンテナと出典の表示で判定する。
-
-const CENTER = { lat: 26.5, lng: 127.9 };
-
-function uniqueName() {
-  return `E2E地図-${test.info().project.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// テスト用の圃場を DB に直接作る（1-2 で登録画面は検証済み）
-async function createField() {
-  const supabase = await supabaseAsA();
-  const code = randomFieldCode();
-  const { data, error } = await supabase
-    .from("fields")
-    .insert({ name: uniqueName(), code, center_lat: CENTER.lat, center_lng: CENTER.lng })
-    .select("id, code")
-    .single();
-  if (error || !data) throw new Error(`圃場を作れません: ${error?.message}`);
-  return { supabase, id: data.id as string, code: data.code as string };
-}
-
-async function openMap(page: Page, fieldId: string) {
-  // 圃場の詳細から導線で地図へ
-  await page.goto(`/fields/${fieldId}`);
-  await page.getByRole("link", { name: "地図（株の配置）" }).click();
-  await expect(page).toHaveURL(`/fields/${fieldId}/map`);
-  // 地図は Client Component（next/dynamic, ssr:false）で、開発サーバーでは初回表示に Turbopack のコンパイルと
-  // MapLibre の読み込みがかかる。他のテストと並行して走ると 5 秒を超えることがあるので ACTION_TIMEOUT で待つ
-  const map = page.getByTestId("field-map");
-  await expect(map).toBeVisible({ timeout: ACTION_TIMEOUT });
-  await expect(map).toHaveAttribute("data-map-ready", "true", { timeout: ACTION_TIMEOUT });
-  return map;
-}
-
-async function canvasCenter(map: Locator) {
-  const box = await map.boundingBox();
-  if (!box) throw new Error("地図の大きさが取れません");
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}
 
 type GridInput = {
   rows: number;

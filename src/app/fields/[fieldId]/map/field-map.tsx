@@ -9,6 +9,7 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { bearingDeg, distanceM, gridPoints, type LatLng } from "@/lib/geo";
 import {
@@ -37,7 +38,15 @@ const MAX_ZOOM = 22;
 const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 if (typeof window !== "undefined") setWorkerUrl(MAPLIBRE_WORKER_URL);
 
-type Mode = "idle" | "pick-origin" | "pick-direction" | "form" | "preview";
+// 格子で配置: pick-origin → pick-direction → form → preview。1株追加: pick-single → single-form
+type Mode =
+  | "idle"
+  | "pick-origin"
+  | "pick-direction"
+  | "form"
+  | "preview"
+  | "pick-single"
+  | "single-form";
 
 type GridForm = {
   rows: string;
@@ -134,6 +143,7 @@ function attachPointerDrag(map: MapLibreMap, marker: Marker, el: HTMLElement) {
 }
 
 export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarId }: FieldMapProps) {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const matMarkersRef = useRef<Marker[]>([]);
@@ -150,6 +160,8 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
   const [mode, setMode] = useState<Mode>("idle");
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [direction, setDirection] = useState<LatLng | null>(null);
+  // 1株追加でタップした位置
+  const [singlePoint, setSinglePoint] = useState<LatLng | null>(null);
   // 生成した格子（ドラッグ後の位置はマーカーが持つ。確定時にマーカーから読む）
   const [preview, setPreview] = useState<LatLng[] | null>(null);
   const [form, setForm] = useState<GridForm>(() => ({
@@ -198,6 +210,13 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     map.on("style.load", () => setMapReady(true));
 
+    // 既に株があれば、株全体が見えて 1 株ずつタップできるズームにする（初期ズーム 18 では 3m 間隔の株がほぼ重なる）
+    if (initialMats.length > 0) {
+      const bounds = new LngLatBounds();
+      for (const m of initialMats) bounds.extend([m.lng, m.lat]);
+      map.fitBounds(bounds, { padding: 60, maxZoom: 21, duration: 0 });
+    }
+
     map.on("click", (e: MapMouseEvent) => {
       const p = { lat: e.lngLat.lat, lng: e.lngLat.lng };
       const m = modeRef.current;
@@ -207,11 +226,25 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
       } else if (m === "pick-direction") {
         setDirection(p);
         setMode("form");
+      } else if (m === "pick-single") {
+        setSinglePoint(p);
+        setMode("single-form");
       }
     });
 
+    // 株の点（mat-marker）のタップで株の詳細へ。配置モード中は地図のタップとして扱う（上の click ハンドラ）。
+    // マーカーごとにリスナーを付けず、コンテナで 1 つ受ける
+    const onContainerClick = (ev: MouseEvent) => {
+      if (modeRef.current !== "idle") return;
+      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>("[data-mat-id]");
+      if (!target?.dataset.matId) return;
+      router.push(`/mats/${target.dataset.matId}`);
+    };
+    container.addEventListener("click", onContainerClick);
+
     mapRef.current = map;
     return () => {
+      container.removeEventListener("click", onContainerClick);
       map.remove();
       mapRef.current = null;
       matMarkersRef.current = [];
@@ -228,21 +261,29 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     const markers: Marker[] = [];
     if (origin) markers.push(makeGuideMarker(map, origin, "bg-blue-600", "origin"));
     if (direction) markers.push(makeGuideMarker(map, direction, "bg-sky-300", "direction"));
+    if (singlePoint) markers.push(makeGuideMarker(map, singlePoint, "bg-amber-400", "single"));
     return () => {
       for (const m of markers) m.remove();
     };
-  }, [origin, direction, mapReady]);
+  }, [origin, direction, singlePoint, mapReady]);
 
-  // 既存の株を点で表示（色分けは 1-5 以降。いまは単色）
+  // 既存の株を点で表示（色分けは 1-5 以降。いまは単色）。タップで株の詳細へ（配置モード中は地図のタップとして扱う）
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     for (const m of matMarkersRef.current) m.remove();
     matMarkersRef.current = mats.map((mat) => {
-      const el = makeDot("h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 shadow");
+      const el = makeDot(
+        "h-3.5 w-3.5 cursor-pointer rounded-full border-2 border-white bg-green-500 shadow",
+      );
       el.dataset.testid = "mat-marker";
+      // mat.id をそのまま dataset / setAttribute に渡すと React Compiler の lint（react-hooks/immutability）が
+      // 「mats を変更するかもしれない」と誤判定するので、文字列に写してから付ける
+      el.setAttribute("data-mat-id", `${mat.id}`);
       el.dataset.code = mat.code;
       el.title = mat.code;
+      el.role = "link";
+      el.ariaLabel = `株 ${mat.code}`;
       setLatLngAttrs(el, mat);
       return new Marker({ element: el }).setLngLat([mat.lng, mat.lat]).addTo(map);
     });
@@ -278,21 +319,58 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     };
   }, [preview]);
 
+  function resetPicks() {
+    setOrigin(null);
+    setDirection(null);
+    setSinglePoint(null);
+    setPreview(null);
+  }
+
   function startPlacement() {
     setError(null);
     setNotice(null);
-    setOrigin(null);
-    setDirection(null);
-    setPreview(null);
+    resetPicks();
     setMode("pick-origin");
+  }
+
+  function startSingle() {
+    setError(null);
+    setNotice(null);
+    resetPicks();
+    setMode("pick-single");
   }
 
   function cancelPlacement() {
     setError(null);
-    setOrigin(null);
-    setDirection(null);
-    setPreview(null);
+    resetPicks();
     setMode("idle");
+  }
+
+  // 1株追加の確定。格子配置と同じ Server Action（placeMats）に 1 点だけ渡す（採番も同じ）
+  function confirmSingle(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!singlePoint) return;
+    if (!form.cultivarId) return setError("品種を選んでください");
+    if (!form.plantedAt) return setError("植え付け日を入力してください");
+    const point = singlePoint;
+    setError(null);
+    startSaving(async () => {
+      const result = await placeMats({
+        fieldId: field.id,
+        cultivarId: form.cultivarId,
+        plantedAt: form.plantedAt,
+        originType: form.originType,
+        points: [point],
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSavedMats((prev) => [...prev, ...result.mats]);
+      setNotice(`株 ${result.mats[0]?.code} を追加しました`);
+      resetPicks();
+      setMode("idle");
+    });
   }
 
   function generatePreview(e: React.FormEvent<HTMLFormElement>) {
@@ -333,10 +411,8 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
       }
       setSavedMats((prev) => [...prev, ...result.mats]);
       setNotice(`${result.mats.length} 株を保存しました（${result.mats[0]?.code}〜${result.mats.at(-1)?.code}）`);
-      setOrigin(null);
-      setDirection(null);
-      setPreview(null);
-        setMode("idle");
+      resetPicks();
+      setMode("idle");
     });
   }
 
@@ -346,7 +422,58 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     "pick-direction": "列の向きを決める点を地図でタップしてください（2 点目）",
     form: "列数・本数などを入力してプレビューを表示します",
     preview: "点をドラッグして位置を直し、よければ確定してください",
+    "pick-single": "株を追加する位置を地図でタップしてください",
+    "single-form": "品種などを入力して確定すると、タップした位置に株を 1 つ追加します",
   };
+
+  // 格子配置と 1株追加で共通の入力（品種・植え付け日・苗の種類）
+  const commonFields = (
+    <>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>品種</span>
+        <select
+          name="cultivarId"
+          value={form.cultivarId}
+          onChange={(e) => setForm({ ...form, cultivarId: e.target.value })}
+          className={inputClass}
+        >
+          {cultivars.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>植え付け日</span>
+        <input
+          type="date"
+          name="plantedAt"
+          value={form.plantedAt}
+          onChange={(e) => setForm({ ...form, plantedAt: e.target.value })}
+          className={inputClass}
+        />
+      </label>
+      <fieldset className="flex flex-col gap-1 text-sm">
+        <legend>苗の種類</legend>
+        <div className="flex gap-4">
+          {MAT_ORIGIN_TYPES.map((t) => (
+            <label key={t} className="flex min-h-12 items-center gap-2">
+              <input
+                type="radio"
+                name="originType"
+                value={t}
+                checked={form.originType === t}
+                onChange={() => setForm({ ...form, originType: t })}
+                className="h-5 w-5"
+              />
+              {MAT_ORIGIN_LABELS[t]}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </>
+  );
 
   const directionInfo =
     origin && direction
@@ -370,9 +497,28 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
         </p>
 
         {mode === "idle" && (
-          <button type="button" className={primaryButtonClass} onClick={startPlacement}>
-            配置を始める
-          </button>
+          <div className="flex flex-col gap-3">
+            <button type="button" className={primaryButtonClass} onClick={startPlacement}>
+              配置を始める
+            </button>
+            <button type="button" className={secondaryButtonClass} onClick={startSingle}>
+              1株追加
+            </button>
+          </div>
+        )}
+
+        {mode === "single-form" && (
+          <form className="flex flex-col gap-3" onSubmit={confirmSingle} noValidate>
+            {commonFields}
+            <button
+              type="submit"
+              className={primaryButtonClass}
+              disabled={saving}
+              data-testid="single-confirm"
+            >
+              {saving ? "保存中…" : "確定（1 株）"}
+            </button>
+          </form>
         )}
 
         {mode !== "idle" && (
@@ -423,49 +569,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
                 />
               </label>
             </div>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>品種</span>
-              <select
-                name="cultivarId"
-                value={form.cultivarId}
-                onChange={(e) => setForm({ ...form, cultivarId: e.target.value })}
-                className={inputClass}
-              >
-                {cultivars.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>植え付け日</span>
-              <input
-                type="date"
-                name="plantedAt"
-                value={form.plantedAt}
-                onChange={(e) => setForm({ ...form, plantedAt: e.target.value })}
-                className={inputClass}
-              />
-            </label>
-            <fieldset className="flex flex-col gap-1 text-sm">
-              <legend>苗の種類</legend>
-              <div className="flex gap-4">
-                {MAT_ORIGIN_TYPES.map((t) => (
-                  <label key={t} className="flex min-h-12 items-center gap-2">
-                    <input
-                      type="radio"
-                      name="originType"
-                      value={t}
-                      checked={form.originType === t}
-                      onChange={() => setForm({ ...form, originType: t })}
-                      className="h-5 w-5"
-                    />
-                    {MAT_ORIGIN_LABELS[t]}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            {commonFields}
             <div className="flex gap-3">
               <button type="submit" className={secondaryButtonClass} disabled={saving}>
                 プレビュー
