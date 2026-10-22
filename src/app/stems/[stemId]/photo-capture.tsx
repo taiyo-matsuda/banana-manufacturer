@@ -1,76 +1,67 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import exifr from "exifr";
 import {
   fitWithinLongEdge,
-  INITIAL_PHOTO_RECORD_STATE,
   latLngFromExif,
   parseExifDateTime,
   PHOTO_KIND_LABELS,
   PHOTO_KINDS,
   type PhotoKind,
-  type PhotoRecordState,
+  photoStoragePath,
   resolveTakenAt,
   DEFAULT_PHOTO_KIND,
 } from "@/lib/photos";
-import { createClient } from "@/lib/supabase/client";
-import { preparePhotoUpload, recordPhoto } from "./actions";
+import { enqueuePhoto } from "@/lib/offline/enqueue";
 
 const selectClass =
   "h-12 rounded-lg border border-zinc-300 bg-white px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
 
 // 茎の写真（1-7、画面 4）。<input type="file" capture> で撮影 → EXIF（撮影日時・GPS）を読む →
-// 長辺 2048px に縮小（JPEG）→ Storage に直接アップロード → Server Action で photos に追記。
-// 1-9 までは オンライン前提（圏外ではエラーになる）。
-export function PhotoCapture({ stemId }: { stemId: string }) {
+// 長辺 2048px に縮小（JPEG）→ 端末の pendingPhotos（Blob）と outbox に保存（1-9）。
+// 同期ワーカーが Storage にアップロード（同じパスに upsert）→ photos に追記する。圏外でも撮影・記録できる。
+// 写真の id と Storage のパスは端末で採番する（organization_id はサーバーから props で受け取る）。
+export function PhotoCapture({ stemId, userId, organizationId }: { stemId: string; userId: string; organizationId: string }) {
   const [kind, setKind] = useState<PhotoKind>(DEFAULT_PHOTO_KIND);
-  const [state, setState] = useState<PhotoRecordState>(INITIAL_PHOTO_RECORD_STATE);
-  const [phase, setPhase] = useState<"idle" | "reading" | "uploading" | "recording">("idle");
-  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"idle" | "reading" | "saving">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const busy = pending || phase !== "idle";
+  const busy = phase !== "idle";
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    startTransition(async () => {
+    void (async () => {
       try {
         setPhase("reading");
         const [meta, image] = await Promise.all([readExif(file), shrinkToJpeg(file)]);
         const { takenAt } = resolveTakenAt(meta.exifDate, new Date());
 
-        const prepared = await preparePhotoUpload(stemId);
-        if (!prepared.ok) throw new Error(prepared.error);
-
-        setPhase("uploading");
-        const supabase = createClient();
-        const { error: uploadError } = await supabase.storage
-          .from("photos")
-          .upload(prepared.storagePath, image.blob, { contentType: image.contentType, upsert: false });
-        if (uploadError) {
-          console.error("photo upload failed", uploadError);
-          throw new Error("写真をアップロードできませんでした。電波の届く場所で再度お試しください");
-        }
-
-        setPhase("recording");
-        const next = await recordPhoto(state, {
+        setPhase("saving");
+        const photoId = crypto.randomUUID();
+        await enqueuePhoto({
+          id: photoId,
           stemId,
-          photoId: prepared.photoId,
-          takenAt: takenAt.toISOString(),
+          storagePath: photoStoragePath({ organizationId, targetType: "stem", targetId: stemId, photoId }),
+          blob: image.blob,
+          contentType: image.contentType,
+          takenAt,
+          userId,
+          lat: meta.latLng?.lat ?? null,
+          lng: meta.latLng?.lng ?? null,
           kind,
-          lat: meta.latLng ? String(meta.latLng.lat) : "",
-          lng: meta.latLng ? String(meta.latLng.lng) : "",
         });
-        setState(next);
+        setError(null);
       } catch (err) {
-        setState((prev) => ({ error: err instanceof Error ? err.message : "写真の保存に失敗しました", succeeded: prev.succeeded }));
+        console.error("photo save failed", err);
+        setError(err instanceof Error && err.message ? err.message : "写真を端末に保存できませんでした");
       } finally {
         setPhase("idle");
         if (inputRef.current) inputRef.current.value = "";
       }
-    });
+    })();
   };
 
   return (
@@ -97,7 +88,7 @@ export function PhotoCapture({ stemId }: { stemId: string }) {
         <label
           className={`flex h-12 flex-1 cursor-pointer items-center justify-center rounded-lg bg-green-700 px-4 text-base font-medium text-white ${busy ? "opacity-60" : "active:bg-green-800"}`}
         >
-          <span data-testid="photo-status">{phaseLabel(phase, pending)}</span>
+          <span data-testid="photo-status">{phaseLabel(phase)}</span>
           <input
             ref={inputRef}
             type="file"
@@ -110,25 +101,23 @@ export function PhotoCapture({ stemId }: { stemId: string }) {
           />
         </label>
       </div>
-      {state.error && (
+      {error && (
         <p role="alert" data-testid="photo-error" className="text-sm text-red-600 dark:text-red-400">
-          {state.error}
+          {error}
         </p>
       )}
     </section>
   );
 }
 
-function phaseLabel(phase: "idle" | "reading" | "uploading" | "recording", pending: boolean) {
+function phaseLabel(phase: "idle" | "reading" | "saving") {
   switch (phase) {
     case "reading":
       return "画像を準備中…";
-    case "uploading":
-      return "アップロード中…";
-    case "recording":
-      return "記録中…";
+    case "saving":
+      return "保存中…";
     default:
-      return pending ? "処理中…" : "撮影する";
+      return "撮影する";
   }
 }
 

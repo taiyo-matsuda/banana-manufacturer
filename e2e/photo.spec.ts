@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { ACTION_TIMEOUT, expect, supabaseAsA, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, supabaseAsA, test, waitForSynced } from "./helpers";
 import { createField, createMat, createStem } from "./map-helpers";
 
 // 1-7 写真の撮影と保存。完了条件 1〜2 を 1 つずつ検証する。
@@ -81,8 +81,11 @@ test("1. 画像を選ぶと Storage に保存され、茎の履歴にサムネ�
   await expect(item.first().getByTestId("history-value")).toHaveText("横から");
   await expect(view(page).getByTestId("photo-error")).toHaveCount(0);
 
+  // 同期（Storage → photos）が終わると、サムネイルは端末の Blob から署名付き URL に切り替わる
+  await waitForSynced(page);
   const thumb = item.first().getByTestId("history-photo-thumb");
   await expect(thumb).toBeVisible();
+  await expect(thumb).toHaveAttribute("src", /\/storage\/v1\/object\/sign\/photos\//, { timeout: ACTION_TIMEOUT });
   await expect
     .poll(() => thumb.evaluate((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth), {
       timeout: ACTION_TIMEOUT,
@@ -142,6 +145,7 @@ test("2. photos の行に target_id と taken_at（EXIF の撮影日時）が入
   await expect(item).toHaveCount(1, { timeout: ACTION_TIMEOUT });
   await expect(item.first()).toHaveAttribute("data-type", "bud");
   await expect(item.first().getByTestId("history-value")).toHaveText("蕾");
+  await waitForSynced(page);
 
   // DB: target_type=stem, target_id=茎, taken_at=EXIF の DateTimeOriginal（端末のローカル時刻 = JST として解釈）、
   // taken_by=A の profile、kind=bud、upload_status=uploaded、lat/lng=EXIF の GPS。organization_id はトリガーがコピー
@@ -187,6 +191,7 @@ test("2b. EXIF のない画像は taken_at が現在時刻になり、同じ茎�
   });
   const items = view(page).getByTestId("history-item");
   await expect(items).toHaveCount(2, { timeout: ACTION_TIMEOUT });
+  await waitForSynced(page);
 
   const rows = await photoRows(stemId);
   expect(rows).toHaveLength(2);

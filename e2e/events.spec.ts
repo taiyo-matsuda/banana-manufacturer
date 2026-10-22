@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { ACTION_TIMEOUT, expect, supabaseAsA, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, supabaseAsA, test, waitForSynced } from "./helpers";
 import { createField, createMat, createStem } from "./map-helpers";
 
 // 1-8 イベントの記録（出蕾・袋掛け・収穫・被害）。完了条件 1〜3 を 1 つずつ検証し、加えて
@@ -165,6 +165,8 @@ test("1. 出蕾を記録すると状態が「出蕾済み」になり、その�
 
   // DB: events に bud_emerged、payload にその時点の累計葉数 7 と入力値（生葉数 10・前回訪問日 2026-10-12）。
   // occurred_at は入力した過去日（JST の 0 時）。stems は flowered、bud_emerged_at = 2026-10-20（今日ではない）
+  // （記録は端末の outbox 経由で送られるので、同期が終わるのを待ってから確かめる）
+  await waitForSynced(page);
   const events = await eventRows(stemId);
   expect(events).toHaveLength(1);
   expect(events[0]).toMatchObject({
@@ -213,6 +215,7 @@ test("1b. 出蕾前（栽培中）には袋掛けできない: ボタンが出�
     ["debudded", "摘蕾"],
   ] as const) {
     const { error } = await supabase.rpc("record_stem_event", {
+      p_id: crypto.randomUUID(),
       p_stem_id: stemId,
       p_type: type,
       p_occurred_at: new Date().toISOString(),
@@ -224,6 +227,7 @@ test("1b. 出蕾前（栽培中）には袋掛けできない: ボタンが出�
   // 出蕾済みの茎に出蕾はできない。この関数で扱わない type（枯葉処理）も拒否
   const flowered = await setupStem("flowered", 3);
   const { error: budError } = await supabase.rpc("record_stem_event", {
+    p_id: crypto.randomUUID(),
     p_stem_id: flowered.stemId,
     p_type: "bud_emerged",
     p_occurred_at: new Date().toISOString(),
@@ -232,6 +236,7 @@ test("1b. 出蕾前（栽培中）には袋掛けできない: ボタンが出�
   });
   expect(budError?.message).toContain("出蕾は栽培中の茎にだけ記録できます");
   const { error: otherError } = await supabase.rpc("record_stem_event", {
+    p_id: crypto.randomUUID(),
     p_stem_id: stemId,
     p_type: "leaves_removed",
     p_occurred_at: new Date().toISOString(),
@@ -287,6 +292,7 @@ test("2. 収穫を記録すると状態が「収穫済み」になり、その�
   await expect(item.getByTestId("history-at")).toContainText("2026/10/18");
 
   // DB: stems は harvested、harvested_at = ended_at = 入力した過去日 2026-10-18。events に harvested（weight_kg: 12.5）
+  await waitForSynced(page);
   expect(await stemRow(stemId)).toMatchObject({ status: "harvested", harvested_at: "2026-10-18", ended_at: "2026-10-18" });
   const events = await eventRows(stemId);
   expect(events).toHaveLength(1);
@@ -339,6 +345,7 @@ test("2b. 段数・袋掛け・摘蕾は状態を変えず、履歴に出る（�
   await expect(view(page).locator('[data-testid="history-item"][data-type="hands_counted"]').getByTestId("history-value")).toHaveText("8 段");
   await expect(view(page).locator('[data-testid="history-item"][data-type="bagged"]').getByTestId("history-at")).toContainText("2026/10/10");
 
+  await waitForSynced(page);
   expect(await stemRow(stemId)).toMatchObject({ status: "flowered", bagged_at: "2026-10-10", harvested_at: null, ended_at: null });
   const events = await eventRows(stemId);
   expect(events.map((e) => [e.type, e.payload])).toEqual([
@@ -377,6 +384,7 @@ test("3. 被害を「喪失」で記録すると状態が「喪失」になり�
   await expect(item.getByTestId("history-label")).toHaveText("被害");
   await expect(item.getByTestId("history-value")).toHaveText("倒伏・喪失");
 
+  await waitForSynced(page);
   expect(await stemRow(stemId)).toMatchObject({ status: "lost", ended_at: todayJst(), harvested_at: null });
   const events = await eventRows(stemId);
   expect(events).toHaveLength(1);
@@ -406,6 +414,7 @@ test("3b. 被害が「喪失」以外（軽）なら状態は変わらず、記�
   const item = view(page).locator('[data-testid="history-item"][data-type="damage"]');
   await expect(item.getByTestId("history-value")).toHaveText("裂葉・軽");
 
+  await waitForSynced(page);
   expect(await stemRow(stemId)).toMatchObject({ status: "flowered", ended_at: null });
   const events = await eventRows(stemId);
   expect(events).toHaveLength(1);
@@ -418,6 +427,7 @@ test("3b. 被害が「喪失」以外（軽）なら状態は変わらず、記�
   await dialog.getByTestId("event-submit").click();
   await expect(view(page).locator('[data-testid="history-item"][data-type="damage"]')).toHaveCount(2, { timeout: ACTION_TIMEOUT });
   await expect(view(page).getByTestId("stem-status")).toHaveText("出蕾済み");
+  await waitForSynced(page);
   expect((await stemRow(stemId)).status).toBe("flowered");
 });
 
@@ -427,6 +437,7 @@ test("4. 記録を編集・削除する UI がない（イベントを記録し�
   await view(page).getByTestId("event-button-bagged").click();
   await page.getByTestId("event-dialog").getByTestId("event-submit").click();
   await expect(view(page).getByTestId("event-notice")).toHaveText("袋掛けを記録しました", { timeout: ACTION_TIMEOUT });
+  await waitForSynced(page);
 
   for (const url of [`/stems/${stemId}`, `/stems/${stemId}/history`]) {
     await page.goto(url);

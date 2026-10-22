@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { ACTION_TIMEOUT, expect, supabaseAsA, test } from "./helpers";
+import { ACTION_TIMEOUT, expect, supabaseAsA, test, waitForSynced } from "./helpers";
 import { createField, createMat, createStem } from "./map-helpers";
 
 // 1-6 茎の記録入力（葉数）。完了条件 1〜3 を 1 つずつ検証し、加えて検算の警告を検証する。
@@ -97,6 +97,8 @@ test("1. +1 を押すと累計葉数が 1 増え、再読み込み後も保持�
   await expect(item.first().getByTestId("history-value")).toHaveText("+1");
 
   // DB: observations に type=leaves_new, value=1, observed_by=A の profile。organization_id はトリガーがコピー
+  // （記録は端末の outbox 経由で送られるので、同期が終わるのを待ってから確かめる）
+  await waitForSynced(page);
   const rows = await observationRows(stemId);
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ type: "leaves_new", observed_by: await profileIdA(), organization_id: ORG_A, superseded_by: null });
@@ -142,6 +144,7 @@ test("1b. +0 / +2 / 数字入力（3 枚以上）も記録され、累計に加�
   });
   await expect(view(page).getByTestId("stem-cumulative-leaves")).toHaveText("9");
 
+  await waitForSynced(page);
   const rows = await observationRows(stemId);
   expect(rows.map((r) => [r.type, Number(r.value)])).toEqual([
     ["leaves_new", 0],
@@ -184,6 +187,7 @@ test("2. 枯葉処理を 2 枚で記録すると、イベントとして保存�
   await expect(view(page).getByTestId("stem-cumulative-leaves")).toHaveText("6");
 
   // DB: events に type=leaves_removed, target=stem, payload={count: 2}, recorded_by=A の profile
+  await waitForSynced(page);
   const rows = await eventRows(stemId);
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({
@@ -221,6 +225,7 @@ test("3. 記録を削除・編集する UI がない（記録入力と履歴の�
   await view(page).getByTestId("leaves-removed-input").fill("1");
   await view(page).getByTestId("leaves-removed-submit").click();
   await expect(view(page).getByTestId("history-item")).toHaveCount(2, { timeout: ACTION_TIMEOUT });
+  await waitForSynced(page);
 
   for (const url of [`/stems/${stemId}`, `/stems/${stemId}/history`]) {
     await page.goto(url);
@@ -267,6 +272,7 @@ test("4. 検算: 現在の葉数を累計より 3 枚以上少なく記録する
   await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（累計 10、検算 7）", {
     timeout: ACTION_TIMEOUT,
   });
+  await waitForSynced(page);
   await page.reload();
   await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（累計 10、検算 7）");
 
@@ -280,6 +286,7 @@ test("4. 検算: 現在の葉数を累計より 3 枚以上少なく記録する
   await expect(view(page).getByTestId("stem-leaves-by-check")).toHaveText("10 枚", { timeout: ACTION_TIMEOUT });
   await expect(view(page).getByTestId("leaf-check-warning")).toHaveCount(0);
 
+  await waitForSynced(page);
   const rows = await observationRows(stemId);
   expect(rows.map((r) => [r.type, Number(r.value)])).toEqual([
     ["leaves_current", 9],

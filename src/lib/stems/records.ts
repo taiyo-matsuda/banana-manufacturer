@@ -113,6 +113,7 @@ export type ObservationRow = {
   observed_at: string;
   superseded_by: string | null;
   observer_name?: string | null;
+  pending?: boolean; // 未同期（端末の outbox にあり、まだサーバーに送っていない。1-9）
 };
 
 export type EventRow = {
@@ -122,15 +123,18 @@ export type EventRow = {
   payload: Record<string, unknown> | null;
   superseded_by: string | null;
   recorder_name?: string | null;
+  pending?: boolean;
 };
 
-// 写真（1-7）。url は非公開バケットの署名付き URL（サーバーで作る。作れなければ null）
+// 写真（1-7）。url は非公開バケットの署名付き URL（サーバーで作る。作れなければ null）。
+// 未同期の写真は端末の Blob の object URL（1-9）
 export type PhotoRow = {
   id: string;
   kind: string;
   taken_at: string;
   url: string | null;
   taker_name?: string | null;
+  pending?: boolean;
 };
 
 export type HistoryPhoto = { id: string; url: string | null; kind: string };
@@ -144,6 +148,7 @@ export type HistoryEntry = {
   at: Date;
   by: string | null;
   superseded: boolean; // 訂正済み（打ち消し表示）
+  pending: boolean; // 未同期（「未同期」の印）
   photo?: HistoryPhoto; // kind === "photo" のときだけ
 };
 
@@ -165,6 +170,7 @@ export function buildHistory(
       at: new Date(o.observed_at),
       by: o.observer_name ?? null,
       superseded: o.superseded_by !== null,
+      pending: o.pending === true,
     })),
     ...events.map<HistoryEntry>((e) => ({
       key: `event:${e.id}`,
@@ -175,6 +181,7 @@ export function buildHistory(
       at: new Date(e.occurred_at),
       by: e.recorder_name ?? null,
       superseded: e.superseded_by !== null,
+      pending: e.pending === true,
     })),
     ...photos.map<HistoryEntry>((p) => ({
       key: `photo:${p.id}`,
@@ -185,6 +192,7 @@ export function buildHistory(
       at: new Date(p.taken_at),
       by: p.taker_name ?? null,
       superseded: false,
+      pending: p.pending === true,
       photo: { id: p.id, url: p.url, kind: p.kind },
     })),
   ];

@@ -1,18 +1,22 @@
 "use client";
 
-import { startTransition, useActionState, useState } from "react";
+import { useState } from "react";
+import { enqueueStemEvent } from "@/lib/offline/enqueue";
+import { stemStatusLabel } from "@/lib/stems/status";
 import {
   allowedEventTypes,
+  canRecordEvent,
   DAMAGE_KIND_LABELS,
   DAMAGE_KINDS,
   DAMAGE_SEVERITIES,
   DAMAGE_SEVERITY_LABELS,
-  INITIAL_EVENT_RECORD_STATE,
+  occurredAtFromDate,
+  parseEventInput,
   STEM_EVENT_LABELS,
   type StemEventType,
+  stemEventLabel,
   todayJst,
 } from "@/lib/stemEvents";
-import { recordStemEvent } from "./actions";
 
 const inputClass =
   "h-12 w-full rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
@@ -22,35 +26,82 @@ const eventButtonClass =
   "h-16 min-w-[7rem] flex-1 rounded-xl bg-amber-700 px-4 text-lg font-semibold text-white active:bg-amber-800 disabled:opacity-60";
 
 // 茎のイベント（1-8、画面 4「イベント」）。
-// 茎の状態に応じてボタンを出し分ける（active → 出蕾・被害 / flowered → 段数・袋掛け・摘蕾・収穫・被害。stemEvents.ts の表）。
+// 茎の状態（未送信のイベントを反映した見かけの状態）に応じてボタンを出し分ける（stemEvents.ts の表）。
 // イベント系は誤操作対策として確認を挟む（screens.md 3 章）: ボタン → 入力ダイアログ → 「記録する」で確定。
-// 保存は Server Action → RPC record_stem_event（0008）。状態の前提違反などは RPC の日本語メッセージをそのまま出す。
+// 保存は端末の outbox に積む（1-9）。同期ワーカーが RPC record_stem_event（0009、id で冪等）を呼び、
+// 状態の前提違反などサーバーで拒否されたものは「要確認」としてヘッダの同期状態から辿れる。
+// 出蕾の累計葉数は、画面が持つ観測 + 未送信分から計算した値（props）を payload に入れる。
 // 記録を編集・削除する UI は置かない（追記のみ）。
-// 送信は <form action> に任せず onSubmit で FormData を組んで formAction を呼ぶ（React 19 は <form action> の
-// Action 完了後にフォームを自動リセットするため、検証エラーの後に確認日や生葉数が既定値に戻ってしまう。
-// 現場ではエラー文言で指摘された項目だけ直して再送信するので、過去日が黙って今日に戻ると誤った bud_emerged_at が残る）。
+// 検証エラーの後も入力値が残るよう、<form action> ではなく onSubmit で FormData を組む。
 export function EventRecord({
   stemId,
+  userId,
   status,
+  cumulativeLeaves,
   defaultEarliestAt,
 }: {
   stemId: string;
+  userId: string;
   status: string;
+  cumulativeLeaves: number;
   defaultEarliestAt: string | null;
 }) {
-  const [state, formAction, pending] = useActionState(recordStemEvent, INITIAL_EVENT_RECORD_STATE);
-  // 開いたときの succeeded を覚え、成功して増えたら閉じる（stem-form.tsx と同じ仕組み）
-  // submitted: このダイアログで送信したか（前に開いたダイアログのエラーを新しいダイアログに持ち越さない）
-  const [opened, setOpened] = useState<{ type: StemEventType; at: number; submitted: boolean } | null>(null);
-  const open = opened !== null && opened.at === state.succeeded ? opened.type : null;
+  const [opened, setOpened] = useState<StemEventType | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [lastType, setLastType] = useState<StemEventType | null>(null);
+  const [succeeded, setSucceeded] = useState(0);
   const types = allowedEventTypes(status);
+
+  const submit = async (formData: FormData) => {
+    if (pending) return;
+    const text = (name: string) => {
+      const v = formData.get(name);
+      return v === null ? undefined : String(v);
+    };
+    const parsed = parseEventInput({
+      type: text("type") ?? "",
+      date: text("date") ?? "",
+      earliestAt: text("earliestAt"),
+      leavesCurrent: text("leavesCurrent"),
+      girthCm: text("girthCm"),
+      hands: text("hands"),
+      weightKg: text("weightKg"),
+      kind: text("kind"),
+      severity: text("severity"),
+    });
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const { type, date, payload } = parsed.value;
+    if (!canRecordEvent(status, type)) {
+      setError(`${stemEventLabel(type)}はこの茎（${stemStatusLabel(status)}）には記録できません`);
+      return;
+    }
+    if (type === "bud_emerged") payload.cumulative_leaves = cumulativeLeaves;
+
+    setPending(true);
+    try {
+      await enqueueStemEvent({ stemId, userId, type, occurredAt: occurredAtFromDate(date), payload });
+      setError(null);
+      setLastType(type);
+      setSucceeded((n) => n + 1);
+      setOpened(null);
+    } catch (err) {
+      console.error("event enqueue failed", err);
+      setError("端末に保存できませんでした。時間をおいて再度お試しください");
+    } finally {
+      setPending(false);
+    }
+  };
 
   return (
     <section className="flex flex-col gap-3" aria-label="イベント" data-testid="event-section">
       <h2 className="text-base font-semibold">イベント</h2>
-      {state.lastType && open === null && (
+      {lastType && opened === null && (
         <p data-testid="event-notice" className="text-sm text-green-700 dark:text-green-400">
-          {STEM_EVENT_LABELS[state.lastType]}を記録しました
+          {STEM_EVENT_LABELS[lastType]}を記録しました
         </p>
       )}
       <div className="flex flex-wrap gap-3" data-testid="event-buttons">
@@ -60,24 +111,28 @@ export function EventRecord({
             type="button"
             className={eventButtonClass}
             disabled={pending}
-            onClick={() => setOpened({ type: t, at: state.succeeded, submitted: false })}
+            onClick={() => {
+              setError(null);
+              setOpened(t);
+            }}
             data-testid={`event-button-${t}`}
           >
             {STEM_EVENT_LABELS[t]}
           </button>
         ))}
       </div>
-      {open !== null && (
+      {opened !== null && (
         <EventDialog
-          key={`${open}:${state.succeeded}`}
+          key={`${opened}:${succeeded}`}
           stemId={stemId}
-          type={open}
+          type={opened}
           defaultEarliestAt={defaultEarliestAt}
-          error={opened?.submitted ? state.error : null}
+          error={error}
           pending={pending}
-          formAction={formAction}
-          onSubmit={() => setOpened((o) => (o ? { ...o, submitted: true } : o))}
-          onCancel={() => setOpened(null)}
+          onSubmit={submit}
+          onCancel={() => {
+            if (!pending) setOpened(null);
+          }}
         />
       )}
     </section>
@@ -90,7 +145,6 @@ function EventDialog({
   defaultEarliestAt,
   error,
   pending,
-  formAction,
   onSubmit,
   onCancel,
 }: {
@@ -99,8 +153,7 @@ function EventDialog({
   defaultEarliestAt: string | null;
   error: string | null;
   pending: boolean;
-  formAction: (formData: FormData) => void;
-  onSubmit: () => void;
+  onSubmit: (formData: FormData) => Promise<void>;
   onCancel: () => void;
 }) {
   const label = STEM_EVENT_LABELS[type];
@@ -119,12 +172,10 @@ function EventDialog({
     >
       <form
         onSubmit={(e) => {
-          // 自動リセットを避ける: 自前で FormData を組み、transition の中で Action を呼ぶ（エラー後も入力値が残る）
+          // 自前で FormData を組んで渡す（エラー後も入力値が残る。フォームは自動でリセットされない）
           e.preventDefault();
           if (pending) return;
-          const formData = new FormData(e.currentTarget);
-          onSubmit();
-          startTransition(() => formAction(formData));
+          void onSubmit(new FormData(e.currentTarget));
         }}
         noValidate
         className="flex max-h-[90vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 dark:bg-zinc-950 sm:rounded-2xl"

@@ -1,48 +1,91 @@
 # 設計: オフライン保存と同期
 
-最終更新: 2026-10-21　要件: `../01_requirements.md` 9章
+最終更新: 2026-10-23　要件: `../01_requirements.md` 9章
+
+実装の状況（1-9）: **書き込みの経路**（観測・イベント・写真）を実装済み。**読み取りのローカルキャッシュ（5 章）は未実装**（ステップ 2 以降。`../03_tasks.md` のメモ）。
+圏外で記録できるのは、オンラインのうちに開いておいた茎の画面だけ。株・茎の作成（配置、採用、株分け）はオンライン前提のまま。
+アプリの殻（HTML/JS）のオフライン配信は 1-10 の Service Worker。
 
 ---
 
 ## 1. 方針
 
 - 圃場では圏外になりうる。**記録はまず端末（IndexedDB）に書き、その後サーバーに送る**。オンラインでも同じ経路を通す（経路を2つ持たない）。
-- 観測・イベント・写真は追記のみなので、同期で競合が起きない。**id は端末側で UUID を生成**し、サーバーでは `insert ... on conflict (id) do nothing`。再送しても二重にならない。
-- 株・茎の作成（配置、採用、株分け）はオンライン時のみ可能とする（MVP）。読み取り用に端末にキャッシュは持つ。
+- 観測・イベント・写真は追記のみなので、同期で競合が起きない。**id は端末側で UUID を生成**し、サーバーでは `insert ... on conflict (id) do nothing`（supabase-js の `upsert(..., { ignoreDuplicates: true })`）。再送しても二重にならない。
+- 株・茎の作成（配置、採用、株分け）はオンライン時のみ可能とする（MVP）。読み取り用の端末キャッシュはステップ 2 以降。
 
 ## 2. 端末側のデータ（Dexie）
 
+DB 名 `banana-field-notes`（`src/lib/db/index.ts`）。インスタンスはブラウザでのみ生成する（SSR で `indexedDB` に触らない）。
+
 | ストア | 内容 |
 |---|---|
-| `fields`, `mats`, `stems` | サーバーのキャッシュ。起動時と同期時に更新 |
-| `observations`, `events` | サーバーのキャッシュ ＋ 未送信分 |
-| `photos` | メタデータ。未送信分は Blob も持つ |
-| `outbox` | 送信待ちキュー。`{id, kind: observation/event/photo/stem_status, payload, created_at, attempts, last_error}` |
+| `outbox` | 送信待ちキュー。index: `id, created_at, stem_id, needs_attention` |
+| `pendingPhotos` | 未送信の写真の Blob。`{id（photos.id）, blob, content_type}`。アップロード成功後に消す |
+| （未実装）`fields`, `mats`, `stems`, `observations`, `events`, `photos` | サーバーのキャッシュ（5 章）。ステップ 2 以降 |
+
+`outbox` の 1 件（`src/lib/offline/types.ts`）:
+
+```
+{
+  id,               // 送る行の id と同じ（observations.id / events.id / photos.id）
+  kind,             // 'observation' | 'event' | 'photo'
+  stem_id,          // 画面への重ね合わせ用
+  payload,          // 下表
+  created_at,       // ISO。この順に送る
+  attempts,         // 失敗した回数
+  last_error,       // 直近の失敗の理由（"[コード] メッセージ"）
+  next_attempt_at,  // バックオフの次回時刻（epoch ms）。null は即時
+  needs_attention,  // 1 = 要確認（自動では送らない。手動で再試行）
+}
+```
+
+| kind | payload | 送り方 |
+|---|---|---|
+| observation | `{id, stem_id, type, value, observed_at, observed_by}` | `observations` に upsert（ignoreDuplicates） |
+| event（`method: 'insert'`） | 枯葉処理 `{id, type: 'leaves_removed', target_type: 'stem', target_id, occurred_at, recorded_by, payload: {count}}` | `events` に upsert（ignoreDuplicates） |
+| event（`method: 'record_stem_event'`） | 出蕾・段数・袋掛け・摘蕾・収穫・被害 `{id, stem_id, type, occurred_at, payload, note}` | RPC `record_stem_event(p_id, …)`（0009。同じ id の行があれば何もしない）。茎の状態更新も同じ RPC で行い、outbox では 1 件 |
+| photo | `{id, target_type: 'stem', target_id, storage_path, content_type, taken_at, taken_by, lat, lng, kind, uploaded}` | 4 章の写真の流れ |
+
+`observed_by` / `recorded_by` / `taken_by` はログインユーザーの id（サーバーが画面の props で渡す）。`organization_id` は渡さない（INSERT トリガーが親からコピーする）。
 
 ## 3. 書き込みの流れ
 
 ```
 画面でタップ
-  → 端末の UUID を採番
-  → Dexie に行を書く（observations など）＋ outbox に追加
-  → 画面は Dexie から再描画（即時反映）
-  → 同期ワーカーが outbox を順に送る
+  → 端末で crypto.randomUUID() を採番
+  → Dexie の outbox に追加（写真は pendingPhotos に Blob も）   … src/lib/offline/enqueue.ts
+  → 画面は outbox の liveQuery を購読していて即時反映（サーバーの行 + 未送信分の重ね合わせ）
+  → 同期ワーカーが outbox を順に送る（記録直後に起動）
+  → 1 件以上送れたら router.refresh() でサーバーの最新に揃える
 ```
+
+- 重ね合わせ（`src/lib/offline/overlay.ts`、純粋関数）: サーバーの観測・イベント・写真に、この茎の未送信分を `created_at` 順に重ねる。同じ id がサーバーにもあれば重ねない。未送信の行は `pending=true`（履歴に「未同期」の印）。
+- 茎の「見かけの状態」: 未送信の茎イベント（出蕾 → flowered、収穫 → harvested、被害 lost → lost）を `src/lib/stemEvents.ts` の遷移で適用する。記録ボタンの出し分け（`canRecordLeaves` / `canRecordEvent`）はこの状態で判定する。
+- 出蕾の `cumulative_leaves` は端末側で、画面が持つ観測 + 未送信分から計算して payload に入れる。生葉数・偽茎周囲長の観測 2 行は別の outbox 項目（observation）として積む。
+- 送信済みで outbox から消えたが `router.refresh()` の結果（props）にまだ無い行は、props に現れるまで画面側で保持する（一瞬消えて見えないように）。
 
 ## 4. 同期
 
-- トリガー: アプリ起動時、`online` イベント、画面復帰（`visibilitychange`）、記録直後、手動ボタン
-- outbox を `created_at` 順に処理する。1件ずつ送り、成功したら outbox から消す
-- 写真: まず Storage にアップロード → 成功したら `photos` 行を insert（`upload_status=uploaded`）。Storage の成功後に DB 失敗した場合は再送で DB だけやり直す（Storage は同じパスに upsert）
-- 茎の状態更新（出蕾→flowered など）はイベント insert と同じ RPC で行い、outbox では1件として扱う
-- 失敗: `attempts` を増やし、指数バックオフ。5回失敗したら「要確認」としてホームに表示し、手動で再試行できる。エラー内容は `last_error`
-- 未同期件数 = outbox の件数。全画面のヘッダに表示
+実装: `src/lib/offline/worker.ts`（ループ本体。outbox の読み書きと送信は注入。単体テストあり）、`src/lib/offline/sender.ts`（supabase-js で送る）、`src/lib/offline/sync-client.ts`（起動・多重実行の防止・タイマー）、`src/lib/offline/retry.ts`（失敗の分類・バックオフ。単体テストあり）。
 
-## 5. 読み取り
+- トリガー: アプリ起動時、`online` イベント、画面復帰（`visibilitychange`）、記録直後、手動ボタン（ヘッダの同期状態画面）。全画面のヘッダ `SyncStatus` が起動時に 1 回だけ登録する。
+- 同時に 2 つのワーカーは走らせない（実行中に要求が来たら「終わったらもう一度」の印だけ立てる）。
+- outbox を `created_at` 順に処理する。1 件ずつ送り、成功したら outbox から消す。要確認とバックオフ中の項目は飛ばして次へ進む。
+- `navigator.onLine` が false のときは送らない（attempts を無駄に増やさない。`online` イベントで再開）。
+- 写真: まず Storage にアップロード（同じパスに `upsert: true`）→ 成功したら outbox の `payload.uploaded = true` を保存し `pendingPhotos` の Blob を消す → `photos` に upsert（`upload_status = uploaded`）。Storage の成功後に DB が失敗した場合、再送は DB だけやり直す。
+- 失敗: `attempts` を増やし `last_error` を保持。再試行するかどうかは純粋関数 `classifySendError` で分ける:
+  - **再試行**（指数バックオフ 1s, 2s, 4s … 上限 1 分。`next_attempt_at` にタイマー）: ネットワークの失敗（fetch の `TypeError` / `Failed to fetch` / `Load failed`、圏外）、5xx、408 / 429。**5 回失敗したら「要確認」**
+  - **再試行せず即「要確認」**（再送しても直らない）: 認証エラー（401 / 403）、バリデーション系（その他の 4xx、PostgREST の `PGRSTxxx`、PostgreSQL の SQLSTATE（RPC の状態前提違反 `P0001`、制約違反 `23xxx`、RLS `42501` など））、端末に写真の Blob が残っていない
+- 要確認はヘッダの未同期件数からたどれる同期状態画面に一覧（`last_error` 付き）で出し、1 件ずつ・まとめて手動で再試行できる（要確認を外して即送る）。
+- 未同期件数 = outbox の件数（要確認も含む）。全画面のヘッダに表示（0 でも表示）。Dexie の `liveQuery` で購読する。
+
+## 5. 読み取り（未実装。ステップ 2 以降）
 
 - 画面は Dexie から読む。サーバーからの取得は「同期」の一部として Dexie を更新する
 - 取得は組織の全データを `updated_at > 前回同期時刻` で差分取得（テーブルに `updated_at` を持たせる。追記のみテーブルは `created_at` で代用）
 - 25a・400株・数年分でも数万行程度なので、全件を端末に持って問題ない
+- 1-9 の時点では、画面はサーバーから読み（RSC）、茎の記録入力画面だけが outbox の未送信分を重ねている。履歴画面（画面 8）・株の詳細はサーバーの行だけを出す（同期が終われば揃う）
 
 ## 6. iPhone Safari の注意
 
@@ -52,4 +95,7 @@
 
 ## 7. E2E での検証
 
-- Playwright の `context.setOffline(true)` で圏外を再現し、記録 → 未同期件数が増える → `setOffline(false)` → 同期されサーバーに行がある、を確認する
+- Playwright の `context.setOffline(true)` で圏外を再現し、記録 → 未同期件数が増える → `setOffline(false)` → 同期されサーバーに行がある、を確認する（`e2e/offline.spec.ts`）
+- オフライン中は Next.js のクライアントナビゲーションや RSC の取得も失敗するので、テストはオフラインにする前に茎の画面を開いておく
+- オンラインでも同じ経路（outbox → 同期）を通るので、DB を直接確かめる・再読み込みする前に未同期件数が 0 になるのを待つ（`e2e/helpers.ts` の `waitForSynced`）
+- サーバーに拒否される記録（状態の前提違反）は、Dexie の `outbox` に IndexedDB で直接項目を入れて再現し、要確認の表示と手動再試行を確かめる

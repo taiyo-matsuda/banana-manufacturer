@@ -100,6 +100,13 @@ export { test, expect };
 // 他のテストと並行して走ると 5 秒（既定）では足りないことがあった（fields 3b の flaky）。
 export const ACTION_TIMEOUT = 15_000;
 
+// 1-9: 記録は端末の outbox に積まれてから同期ワーカーが送る（オンラインでも同じ経路）。
+// 画面は outbox の購読で即座に反映されるが、DB を直接確かめる・再読み込みする前には、ヘッダの未同期件数が 0 に
+// なる（= サーバーに届いた）のを待つ。呼ぶのは「画面に反映された」ことを確かめた後（その前だと 0 → 1 → 0 の最初の 0 を拾う）
+export async function waitForSynced(page: Page) {
+  await expect(page.getByTestId("sync-pending-count")).toHaveText("0", { timeout: ACTION_TIMEOUT });
+}
+
 // 圃場記号（英数字 1〜4 文字、組織内で unique）をテストごとに一意にする。
 // 0005 のバックフィルが付けた `X001…` と衝突しないよう、X は使わない。
 export function randomFieldCode(): string {

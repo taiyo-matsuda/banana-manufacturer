@@ -22,6 +22,7 @@ export function StemHistory({ entries }: { entries: HistoryEntry[] }) {
           data-kind={e.kind}
           data-type={e.type}
           data-superseded={e.superseded ? "true" : undefined}
+          data-pending={e.pending ? "true" : undefined}
           data-photo-id={e.photo?.id}
         >
           <span className="flex items-center gap-3">
@@ -36,6 +37,14 @@ export function StemHistory({ entries }: { entries: HistoryEntry[] }) {
                 </span>
               )}
               {e.superseded && <span className="ml-2 text-xs">訂正済み</span>}
+              {e.pending && (
+                <span
+                  className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                  data-testid="history-pending"
+                >
+                  未同期
+                </span>
+              )}
             </span>
           </span>
           <span className="flex shrink-0 flex-col items-end text-xs text-zinc-500">

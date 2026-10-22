@@ -28,6 +28,12 @@ export type StemView = {
   canRecord: boolean;
   latestObservedOn: string | null; // 直近の観測日（JST、YYYY-MM-DD）。出蕾の「前回訪問日」の既定値
   history: HistoryEntry[];
+  // 1-9: Client Component が outbox の未送信分を重ねるための生データと、記録に必要な id
+  userId: string; // observed_by / recorded_by / taken_by
+  organizationId: string; // 写真の Storage パス
+  observations: ObservationRow[];
+  events: EventRow[];
+  photos: PhotoRow[];
 };
 
 // 茎の記録入力（画面 4）と履歴（画面 8）で共通の読み込み。
@@ -50,8 +56,12 @@ export async function loadStem(stemId: string): Promise<StemView> {
   const mat = stem.mats as unknown as { id: string; code: string } | null;
   if (!mat) notFound();
 
-  const [{ data: observations, error: obsError }, { data: events, error: evError }, { data: photos, error: phError }] =
-    await Promise.all([
+  const [
+    { data: observations, error: obsError },
+    { data: events, error: evError },
+    { data: photos, error: phError },
+    { data: profile, error: profileError },
+  ] = await Promise.all([
     supabase
       .from("observations")
       .select("id, type, value, observed_at, superseded_by, profiles ( display_name )")
@@ -69,10 +79,12 @@ export async function loadStem(stemId: string): Promise<StemView> {
       .eq("target_type", "stem")
       .eq("target_id", stem.id)
       .order("taken_at", { ascending: false }),
+    supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle(),
   ]);
   if (obsError) throw new Error(`観測を取得できませんでした（${obsError.message}）`);
   if (evError) throw new Error(`イベントを取得できませんでした（${evError.message}）`);
   if (phError) throw new Error(`写真を取得できませんでした（${phError.message}）`);
+  if (profileError || !profile) throw new Error(`組織を取得できませんでした（${profileError?.message ?? "profile なし"}）`);
 
   // 非公開バケットなので署名付き URL をサーバーで作る（1 時間）。作れない写真は url=null（「画像なし」表示）
   const signedUrlByPath = new Map<string, string>();
@@ -131,5 +143,10 @@ export async function loadStem(stemId: string): Promise<StemView> {
     canRecord: canRecordLeaves(stem.status),
     latestObservedOn: latestDateJst(observationRows.map((o) => o.observed_at)),
     history: buildHistory(observationRows, eventRows, photoRows),
+    userId: user.id,
+    organizationId: profile.organization_id,
+    observations: observationRows,
+    events: eventRows,
+    photos: photoRows,
   };
 }
