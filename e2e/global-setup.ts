@@ -43,75 +43,21 @@ function countTimeWait(): number | null {
   return r.stdout.split("\n").filter((l) => DEV_SERVER_TIME_WAIT.test(l)).length;
 }
 
-// テスト農園 A に前回までの E2E が残した圃場・株を消す（auth.setup.ts が A のセッションで呼ぶ）。
+// テスト農園 A に前回までの E2E が残した圃場・株・茎と、その観測・イベント・写真を消す（auth.setup.ts が A のセッションで呼ぶ）。
 // 行を消さずに走らせ続けると /fields の一覧が数百行に膨れ、登録（refresh を伴う Server Action）の応答が
 // 数百 KB・数秒になって flaky の一因になった。
-// 消すのは名前が `E2E` で始まる圃場と、その圃場の株だけ（手動確認用の圃場は残す）。
-// 観測・イベント（leaves.spec.ts が作る）は追記のみで削除ポリシーがなく、stems への FK も cascade ではない。
-// それらを持つ茎・株・圃場は消さずに残す（1 回の実行で数件。溜まりすぎたら別の方法を考える。
-// 残した圃場の数はログに出す）。
+// 観測・イベントは追記のみ（RLS に delete ポリシーがなく、stems への FK も cascade ではない）ため、
+// アプリの権限では消せない。E2E 専用組織の掃除だけは例外として、組織名で制限した security definer の
+// DB 関数 `e2e_cleanup_fields`（0006）で行う。消すのは名前が `E2E` で始まる圃場に紐づくものだけ
+// （手動確認用の圃場は残す）。戻り値は削除した圃場の数。
 export async function cleanupTestFarmA(supabase: SupabaseClient): Promise<number> {
-  const { data: fields, error: selectError } = await supabase
-    .from("fields")
-    .select("id")
-    .like("name", "E2E%");
-  if (selectError) throw new Error(`E2E の掃除: 圃場を取得できません: ${selectError.message}`);
-  const ids = (fields ?? []).map((f) => f.id as string);
-  let kept = 0;
-
-  // URL 長の上限を避けて 100 件ずつ。FK は cascade でないので stems → mats → fields の順に消す
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
-    const { data: mats, error: matsError } = await supabase.from("mats").select("id, field_id").in("field_id", chunk);
-    if (matsError) throw new Error(`E2E の掃除: 株を取得できません: ${matsError.message}`);
-    const matIds = (mats ?? []).map((m) => m.id as string);
-    // 観測・イベントを持つ茎（消せない）とその株・圃場
-    const keptStems = new Set<string>();
-    const keptMats = new Set<string>();
-    const keptFields = new Set<string>();
-    for (let j = 0; j < matIds.length; j += 100) {
-      const matChunk = matIds.slice(j, j + 100);
-      const { data: stems, error: stemsError } = await supabase
-        .from("stems")
-        .select("id, mat_id")
-        .in("mat_id", matChunk);
-      if (stemsError) throw new Error(`E2E の掃除: 茎を取得できません: ${stemsError.message}`);
-      const stemIds = (stems ?? []).map((s) => s.id as string);
-      if (stemIds.length > 0) {
-        const [{ data: obs, error: obsError }, { data: evs, error: evError }] = await Promise.all([
-          supabase.from("observations").select("stem_id").in("stem_id", stemIds),
-          supabase.from("events").select("target_id").eq("target_type", "stem").in("target_id", stemIds),
-        ]);
-        if (obsError) throw new Error(`E2E の掃除: 観測を取得できません: ${obsError.message}`);
-        if (evError) throw new Error(`E2E の掃除: イベントを取得できません: ${evError.message}`);
-        for (const o of obs ?? []) keptStems.add(o.stem_id as string);
-        for (const e of evs ?? []) keptStems.add(e.target_id as string);
-      }
-      for (const s of stems ?? []) {
-        if (keptStems.has(s.id as string)) keptMats.add(s.mat_id as string);
-      }
-      const deletable = stemIds.filter((id) => !keptStems.has(id));
-      if (deletable.length > 0) {
-        await withRetry("茎を消せません", () => supabase.from("stems").delete().in("id", deletable));
-      }
-    }
-    for (const m of mats ?? []) {
-      if (keptMats.has(m.id as string)) keptFields.add(m.field_id as string);
-    }
-    const deletableMats = matIds.filter((id) => !keptMats.has(id));
-    if (deletableMats.length > 0) {
-      await withRetry("株を消せません", () => supabase.from("mats").delete().in("id", deletableMats));
-    }
-    const deletableFields = chunk.filter((id) => !keptFields.has(id));
-    if (deletableFields.length > 0) {
-      await withRetry("圃場を消せません", () => supabase.from("fields").delete().in("id", deletableFields));
-    }
-    kept += keptFields.size;
-  }
-  if (kept > 0) {
-    console.log(`E2E の掃除: 観測・イベントを持つ茎があるため、圃場 ${kept} 件は残した（追記のみのため消せない）`);
-  }
-  return ids.length - kept;
+  let deleted = 0;
+  await withRetry("E2E 圃場を消せません", async () => {
+    const { data, error } = await supabase.rpc("e2e_cleanup_fields", { prefix: "E2E" });
+    if (!error) deleted = (data as number | null) ?? 0;
+    return { error };
+  });
+  return deleted;
 }
 
 // ポート枯渇などの一時的な `fetch failed` は数秒待って 1 回やり直す（削除は冪等なので安全）

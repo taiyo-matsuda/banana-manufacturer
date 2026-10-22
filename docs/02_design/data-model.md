@@ -40,6 +40,7 @@ cultivars（全組織で共有）
 `observations` と `events` は削除しない。UPDATE は `superseded_by` 列だけ許可する（トリガーで他の列の変更を拒否）。
 訂正は新しいレコードを追加し、元のレコードの `superseded_by` に新レコードの id を入れる。
 読み取り時は `superseded_by is null` の行だけを「現在の値」として扱う。
+例外: E2E 専用組織（組織名が「テスト農園」で始まる）の掃除だけは、組織名で制限した security definer 関数 `e2e_cleanup_fields(prefix)`（`0006_e2e_cleanup.sql`）で観測・イベントごと消す。本番の組織では例外を投げる。
 
 ### 2.3 推定は観測と別
 `estimates` は `model_version` と `computed_at` を持ち、再計算のたびに追記する。最新は `computed_at desc` の先頭。
