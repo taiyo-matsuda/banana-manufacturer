@@ -91,12 +91,33 @@ describe("buildHistory", () => {
     expect(buildHistory([], [])).toEqual([]);
   });
 
-  it("同時刻は観測 → イベントの順", () => {
+  it("同時刻は観測 → イベント → 写真の順", () => {
     const h = buildHistory(
       [{ id: "o", type: "leaves_new", value: 1, observed_at: "2026-10-01T00:00:00Z", superseded_by: null }],
       [{ id: "e", type: "bagged", occurred_at: "2026-10-01T00:00:00Z", payload: {}, superseded_by: null }],
+      [{ id: "p", kind: "side", taken_at: "2026-10-01T00:00:00Z", url: null }],
     );
-    expect(h.map((x) => x.kind)).toEqual(["observation", "event"]);
+    expect(h.map((x) => x.kind)).toEqual(["observation", "event", "photo"]);
+  });
+
+  it("写真は撮影日時で時系列に入り、種類の文言・署名付き URL・撮影者を持つ", () => {
+    const h = buildHistory(observations, events, [
+      { id: "p1", kind: "side", taken_at: "2026-10-02T12:00:00Z", url: "https://example.test/p1.jpg", taker_name: "太郎" },
+      { id: "p2", kind: "bud", taken_at: "2026-09-30T00:00:00Z", url: null },
+    ]);
+    expect(h.map((x) => x.key)).toEqual(["observation:o2", "photo:p1", "event:e1", "observation:o1", "event:e2", "photo:p2"]);
+    expect(h[1]).toMatchObject({
+      kind: "photo",
+      type: "side",
+      label: "写真",
+      valueText: "横から",
+      by: "太郎",
+      superseded: false,
+      photo: { id: "p1", url: "https://example.test/p1.jpg", kind: "side" },
+    });
+    expect(h[5]).toMatchObject({ kind: "photo", valueText: "蕾", by: null, photo: { url: null } });
+    // 観測・イベントには photo が付かない
+    expect(h[0].photo).toBeUndefined();
   });
 });
 

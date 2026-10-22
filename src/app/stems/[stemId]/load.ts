@@ -2,12 +2,14 @@ import "server-only";
 
 import { notFound, redirect } from "next/navigation";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
+import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
 import {
   buildHistory,
   canRecordLeaves,
   type EventRow,
   type HistoryEntry,
   type ObservationRow,
+  type PhotoRow,
   toLeafObservations,
   toLeavesRemoved,
 } from "@/lib/stems/records";
@@ -46,7 +48,8 @@ export async function loadStem(stemId: string): Promise<StemView> {
   const mat = stem.mats as unknown as { id: string; code: string } | null;
   if (!mat) notFound();
 
-  const [{ data: observations, error: obsError }, { data: events, error: evError }] = await Promise.all([
+  const [{ data: observations, error: obsError }, { data: events, error: evError }, { data: photos, error: phError }] =
+    await Promise.all([
     supabase
       .from("observations")
       .select("id, type, value, observed_at, superseded_by, profiles ( display_name )")
@@ -58,9 +61,31 @@ export async function loadStem(stemId: string): Promise<StemView> {
       .eq("target_type", "stem")
       .eq("target_id", stem.id)
       .order("occurred_at", { ascending: false }),
+    supabase
+      .from("photos")
+      .select("id, kind, taken_at, storage_path, profiles ( display_name )")
+      .eq("target_type", "stem")
+      .eq("target_id", stem.id)
+      .order("taken_at", { ascending: false }),
   ]);
   if (obsError) throw new Error(`観測を取得できませんでした（${obsError.message}）`);
   if (evError) throw new Error(`イベントを取得できませんでした（${evError.message}）`);
+  if (phError) throw new Error(`写真を取得できませんでした（${phError.message}）`);
+
+  // 非公開バケットなので署名付き URL をサーバーで作る（1 時間）。作れない写真は url=null（「画像なし」表示）
+  const signedUrlByPath = new Map<string, string>();
+  if (photos && photos.length > 0) {
+    const { data: signed, error: signError } = await supabase.storage
+      .from("photos")
+      .createSignedUrls(
+        photos.map((p) => p.storage_path),
+        PHOTO_SIGNED_URL_TTL_SEC,
+      );
+    if (signError) console.error("createSignedUrls failed", { message: signError.message });
+    for (const s of signed ?? []) {
+      if (s.signedUrl && s.path) signedUrlByPath.set(s.path, s.signedUrl);
+    }
+  }
 
   const nameOf = (p: unknown) => (p as { display_name: string | null } | null)?.display_name ?? null;
   const observationRows: ObservationRow[] = (observations ?? []).map((o) => ({
@@ -79,6 +104,13 @@ export async function loadStem(stemId: string): Promise<StemView> {
     superseded_by: e.superseded_by,
     recorder_name: nameOf(e.profiles),
   }));
+  const photoRows: PhotoRow[] = (photos ?? []).map((p) => ({
+    id: p.id,
+    kind: p.kind,
+    taken_at: p.taken_at,
+    url: signedUrlByPath.get(p.storage_path) ?? null,
+    taker_name: nameOf(p.profiles),
+  }));
 
   const leafObs = toLeafObservations(observationRows);
   const initialLeafCount = stem.initial_leaf_count ?? 0;
@@ -95,6 +127,6 @@ export async function loadStem(stemId: string): Promise<StemView> {
     byCheck,
     checkWarning: leafCheckWarning(cumulative, byCheck),
     canRecord: canRecordLeaves(stem.status),
-    history: buildHistory(observationRows, eventRows),
+    history: buildHistory(observationRows, eventRows, photoRows),
   };
 }

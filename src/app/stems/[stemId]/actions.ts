@@ -2,6 +2,7 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
+import { parseLatLng, parsePhotoKind, parseTakenAtIso, photoStoragePath, type PhotoRecordState } from "@/lib/photos";
 import {
   canRecordLeaves,
   parseLeavesCurrent,
@@ -106,3 +107,104 @@ export async function recordLeavesRemoved(prev: RecordState, formData: FormData)
   refresh();
   return succeed(prev);
 }
+
+// --- 写真（1-7） ---------------------------------------------------------------
+//
+// 流れ: ① preparePhotoUpload で photo_id と Storage のパスを採番（organization_id はサーバーで profiles から取る）
+//       → ② ブラウザが Storage に直接アップロード（ユーザーのセッション、RLS で自組織のフォルダだけ）
+//       → ③ recordPhoto で photos に 1 行追記（パスはサーバーで組み直し、クライアントの値は信用しない）。
+// 写真も追記のみ（更新・削除の Action は作らない）。
+
+export type PreparedPhotoUpload =
+  | { ok: true; photoId: string; storagePath: string }
+  | { ok: false; error: string };
+
+export async function preparePhotoUpload(stemId: string): Promise<PreparedPhotoUpload> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [{ data: profile, error: profileError }, { data: stem, error: stemError }] = await Promise.all([
+    supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle(),
+    supabase.from("stems").select("id").eq("id", stemId).maybeSingle(),
+  ]);
+  if (profileError || !profile) {
+    console.error("profiles select failed", { code: profileError?.code, message: profileError?.message });
+    return { ok: false, error: "組織を取得できませんでした。時間をおいて再度お試しください" };
+  }
+  if (stemError) {
+    console.error("stems select failed", { code: stemError.code, message: stemError.message });
+    return { ok: false, error: "茎を取得できませんでした。時間をおいて再度お試しください" };
+  }
+  if (!stem) return { ok: false, error: "茎が見つかりません" };
+
+  const photoId = crypto.randomUUID();
+  return {
+    ok: true,
+    photoId,
+    storagePath: photoStoragePath({ organizationId: profile.organization_id, targetType: "stem", targetId: stem.id, photoId }),
+  };
+}
+
+export type RecordPhotoInput = {
+  stemId: string;
+  photoId: string;
+  takenAt: string; // ISO
+  kind: string;
+  lat: string;
+  lng: string;
+};
+
+// Storage へのアップロードが成功した後に呼ぶ。photos に target_type=stem の行を追記する。
+// organization_id は渡さない（INSERT トリガーが target からコピーする）
+export async function recordPhoto(prev: PhotoRecordState, input: RecordPhotoInput): Promise<PhotoRecordState> {
+  const failed = (error: string): PhotoRecordState => ({ error, succeeded: prev.succeeded });
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  if (!UUID_PATTERN.test(input.photoId)) return failed("写真の id が不正です");
+  const takenAt = parseTakenAtIso(input.takenAt);
+  if (!takenAt) return failed("撮影日時が不正です");
+  const kind = parsePhotoKind(input.kind);
+  const latLng = parseLatLng(input.lat, input.lng);
+
+  const [{ data: profile, error: profileError }, { data: stem, error: stemError }] = await Promise.all([
+    supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle(),
+    supabase.from("stems").select("id").eq("id", input.stemId).maybeSingle(),
+  ]);
+  if (profileError || !profile) return failed("組織を取得できませんでした。時間をおいて再度お試しください");
+  if (stemError) return failed("茎を取得できませんでした。時間をおいて再度お試しください");
+  if (!stem) return failed("茎が見つかりません");
+
+  const storagePath = photoStoragePath({
+    organizationId: profile.organization_id,
+    targetType: "stem",
+    targetId: stem.id,
+    photoId: input.photoId,
+  });
+  const { error } = await supabase.from("photos").insert({
+    id: input.photoId,
+    storage_path: storagePath,
+    taken_at: takenAt.toISOString(),
+    taken_by: user.id,
+    lat: latLng?.lat ?? null,
+    lng: latLng?.lng ?? null,
+    target_type: "stem",
+    target_id: stem.id,
+    kind,
+    upload_status: "uploaded",
+  });
+  if (error) {
+    console.error("photos insert failed", { code: error.code, message: error.message });
+    return failed("写真の記録に失敗しました。時間をおいて再度お試しください");
+  }
+  refresh();
+  return { error: null, succeeded: prev.succeeded + 1 };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

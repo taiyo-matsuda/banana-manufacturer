@@ -3,8 +3,9 @@
 // - 記録できるのは栽培中（active / flowered）の茎だけ。それ以外は履歴へのリンクだけを出す
 // - leaves_new / leaves_current は observations、leaves_removed（枯葉処理）は events に追記する
 // - 観測・イベントは追記のみ。編集・削除はしない（訂正はステップ 2 で superseded_by による新レコードの追加）
-// - 履歴は観測とイベントを 1 つの時系列に混ぜ、新しい順に並べる
+// - 履歴は観測・イベント・写真を 1 つの時系列に混ぜ、新しい順に並べる
 import type { LeafObservation, LeavesRemovedEvent } from "../leaves";
+import { photoKindLabel } from "../photos";
 
 // 記録ボタンを出す状態（茎の記録入力画面）
 export const RECORDABLE_STEM_STATUSES = ["active", "flowered"] as const;
@@ -122,19 +123,37 @@ export type EventRow = {
   recorder_name?: string | null;
 };
 
+// 写真（1-7）。url は非公開バケットの署名付き URL（サーバーで作る。作れなければ null）
+export type PhotoRow = {
+  id: string;
+  kind: string;
+  taken_at: string;
+  url: string | null;
+  taker_name?: string | null;
+};
+
+export type HistoryPhoto = { id: string; url: string | null; kind: string };
+
 export type HistoryEntry = {
-  key: string; // "observation:<id>" / "event:<id>"
-  kind: "observation" | "event";
+  key: string; // "observation:<id>" / "event:<id>" / "photo:<id>"
+  kind: "observation" | "event" | "photo";
   type: string;
   label: string;
   valueText: string;
   at: Date;
   by: string | null;
   superseded: boolean; // 訂正済み（打ち消し表示）
+  photo?: HistoryPhoto; // kind === "photo" のときだけ
 };
 
-// 観測とイベントを 1 つの時系列にして新しい順（同時刻は観測 → イベント、さらに同じなら id 順）に並べる
-export function buildHistory(observations: readonly ObservationRow[], events: readonly EventRow[]): HistoryEntry[] {
+const KIND_ORDER: Record<HistoryEntry["kind"], number> = { observation: 0, event: 1, photo: 2 };
+
+// 観測・イベント・写真を 1 つの時系列にして新しい順（同時刻は観測 → イベント → 写真、さらに同じなら id 順）に並べる
+export function buildHistory(
+  observations: readonly ObservationRow[],
+  events: readonly EventRow[],
+  photos: readonly PhotoRow[] = [],
+): HistoryEntry[] {
   const entries: HistoryEntry[] = [
     ...observations.map<HistoryEntry>((o) => ({
       key: `observation:${o.id}`,
@@ -156,12 +175,20 @@ export function buildHistory(observations: readonly ObservationRow[], events: re
       by: e.recorder_name ?? null,
       superseded: e.superseded_by !== null,
     })),
+    ...photos.map<HistoryEntry>((p) => ({
+      key: `photo:${p.id}`,
+      kind: "photo",
+      type: p.kind,
+      label: "写真",
+      valueText: photoKindLabel(p.kind),
+      at: new Date(p.taken_at),
+      by: p.taker_name ?? null,
+      superseded: false,
+      photo: { id: p.id, url: p.url, kind: p.kind },
+    })),
   ];
   return entries.sort(
-    (a, b) =>
-      b.at.getTime() - a.at.getTime() ||
-      (a.kind === b.kind ? 0 : a.kind === "observation" ? -1 : 1) ||
-      a.key.localeCompare(b.key),
+    (a, b) => b.at.getTime() - a.at.getTime() || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.key.localeCompare(b.key),
   );
 }
 

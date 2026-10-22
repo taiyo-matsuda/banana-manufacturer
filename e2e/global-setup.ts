@@ -50,7 +50,10 @@ function countTimeWait(): number | null {
 // アプリの権限では消せない。E2E 専用組織の掃除だけは例外として、組織名で制限した security definer の
 // DB 関数 `e2e_cleanup_fields`（0006）で行う。消すのは名前が `E2E` で始まる圃場に紐づくものだけ
 // （手動確認用の圃場は残す）。戻り値は削除した圃場の数。
+// 写真の実体（Storage のオブジェクト）は DB 関数では消えないので、RPC の前に `photos.storage_path` を集めて
+// Storage から消す（0007 の delete ポリシーは E2E 専用組織だけに許可）。
 export async function cleanupTestFarmA(supabase: SupabaseClient): Promise<number> {
+  await removeE2EPhotoObjects(supabase);
   let deleted = 0;
   await withRetry("E2E 圃場を消せません", async () => {
     const { data, error } = await supabase.rpc("e2e_cleanup_fields", { prefix: "E2E" });
@@ -58,6 +61,35 @@ export async function cleanupTestFarmA(supabase: SupabaseClient): Promise<number
     return { error };
   });
   return deleted;
+}
+
+// E2E 圃場（名前が E2E で始まる）の株・茎に紐づく写真の Storage オブジェクトを消す。
+// photos → stems → mats → fields を辿る（photos.target_id には FK がないので、茎の id を集めてから絞る）
+async function removeE2EPhotoObjects(supabase: SupabaseClient) {
+  const { data: fields, error: fErr } = await supabase.from("fields").select("id").like("name", "E2E%");
+  if (fErr) throw new Error(`E2E の掃除: 圃場を取得できません: ${fErr.message}`);
+  if (!fields || fields.length === 0) return;
+  const { data: mats, error: mErr } = await supabase
+    .from("mats")
+    .select("id")
+    .in("field_id", fields.map((f) => f.id));
+  if (mErr) throw new Error(`E2E の掃除: 株を取得できません: ${mErr.message}`);
+  if (!mats || mats.length === 0) return;
+  const { data: stems, error: sErr } = await supabase
+    .from("stems")
+    .select("id")
+    .in("mat_id", mats.map((m) => m.id));
+  if (sErr) throw new Error(`E2E の掃除: 茎を取得できません: ${sErr.message}`);
+  const targetIds = [...mats.map((m) => m.id), ...(stems ?? []).map((s) => s.id), ...fields.map((f) => f.id)];
+  const { data: photos, error: pErr } = await supabase.from("photos").select("storage_path").in("target_id", targetIds);
+  if (pErr) throw new Error(`E2E の掃除: 写真を取得できません: ${pErr.message}`);
+  const paths = (photos ?? []).map((p) => p.storage_path as string);
+  if (paths.length === 0) return;
+  await withRetry("写真の実体を消せません", async () => {
+    const { error } = await supabase.storage.from("photos").remove(paths);
+    return { error };
+  });
+  console.log(`E2E の掃除: Storage の写真 ${paths.length} 件を削除`);
 }
 
 // ポート枯渇などの一時的な `fetch failed` は数秒待って 1 回やり直す（削除は冪等なので安全）
