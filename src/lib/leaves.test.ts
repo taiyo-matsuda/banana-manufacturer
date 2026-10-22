@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cumulativeLeaves,
   cumulativeLeavesByCheck,
+  leafCheckWarning,
   needsLeafCheck,
   type LeafObservation,
 } from "./leaves";
@@ -49,5 +50,17 @@ describe("needsLeafCheck", () => {
 
   it("検算値がなければ確認不要", () => {
     expect(needsLeafCheck(20, null)).toBe(false);
+  });
+});
+
+describe("leafCheckWarning", () => {
+  it("差が3枚以上なら累計と検算の値を含む警告文", () => {
+    expect(leafCheckWarning(10, 7)).toBe("確認してください（累計 10、検算 7）");
+    expect(leafCheckWarning(7, 10)).toBe("確認してください（累計 7、検算 10）");
+  });
+
+  it("差が2枚以下、または検算値がなければ null", () => {
+    expect(leafCheckWarning(10, 8)).toBeNull();
+    expect(leafCheckWarning(10, null)).toBeNull();
   });
 });

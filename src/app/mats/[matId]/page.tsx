@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { StemForm } from "./stem-form";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
-// 葉数の記録（1-6）、予測収穫日（ステップ 3）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
+// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。予測収穫日（ステップ 3）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 export default function MatDetailPage({ params }: { params: Promise<{ matId: string }> }) {
   return (
@@ -160,12 +160,18 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
             {sortedStems.map((s) => (
               <li
                 key={s.id}
-                className="flex min-h-14 items-center justify-between gap-3 rounded-lg border border-zinc-300 px-4 dark:border-zinc-700"
+                className="rounded-lg border border-zinc-300 dark:border-zinc-700"
                 data-testid="stem-item"
                 data-stem-id={s.id}
                 data-generation={s.generation}
                 data-status={s.status}
               >
+                <Link
+                  href={`/stems/${s.id}`}
+                  className="flex min-h-14 items-center justify-between gap-3 px-4"
+                  data-testid="stem-link"
+                  aria-label={`${generationLabel(s.generation)}の記録入力`}
+                >
                 <span className="text-base">
                   <span className="font-medium">{generationLabel(s.generation)}</span>
                   <span className="ml-2 text-xs text-zinc-500">第 {s.generation} 世代</span>
@@ -180,6 +186,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
                     枚
                   </span>
                 </span>
+                </Link>
               </li>
             ))}
           </ol>

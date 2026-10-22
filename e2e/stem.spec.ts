@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { ACTION_TIMEOUT, expect, supabaseAsA, test } from "./helpers";
-import { canvasCenter, createField, createMat, openMap } from "./map-helpers";
+import { canvasCenter, createField, createMat, createStem, openMap } from "./map-helpers";
 
 // 1-5 茎の登録（植え付け）。完了条件 1〜2 を 1 つずつ検証する。
 // テスト農園 A でログイン済み（setup プロジェクトが保存した storageState）。テストごとにログインしない。
@@ -20,24 +20,8 @@ async function stemRows(matId: string) {
 }
 
 // 栽培中の茎を DB に直接作る（UI を通さない経路。トリガー経由のエラーの再現や前提作りに使う）
-async function insertActiveStem(matId: string, generation: number, parentStemId: string | null = null) {
-  const supabase = await supabaseAsA();
-  const { data, error } = await supabase
-    .from("stems")
-    .insert({
-      mat_id: matId,
-      generation,
-      parent_stem_id: parentStemId,
-      status: "active",
-      started_at: "2026-09-15",
-      adopted_at: "2026-09-15",
-      initial_leaf_count: 2,
-    })
-    .select("id")
-    .single();
-  if (error || !data) throw new Error(`茎を作れません: ${error?.message}`);
-  return data.id as string;
-}
+const insertActiveStem = (matId: string, generation: number, parentStemId: string | null = null) =>
+  createStem(matId, { generation, parentStemId });
 
 // 株の詳細で「茎を登録」を開き、初期葉数を入れて送信する（植え付け日は既定のまま）
 async function openStemForm(page: Page) {

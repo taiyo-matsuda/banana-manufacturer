@@ -54,3 +54,13 @@ export function needsLeafCheck(
   if (byCheck === null) return false;
   return Math.abs(cumulative - byCheck) >= threshold;
 }
+
+/** 検算のずれが閾値以上のときの警告文。ずれがなければ null（画面はこの文言をそのまま出す） */
+export function leafCheckWarning(
+  cumulative: number,
+  byCheck: number | null,
+  threshold = LEAF_CHECK_THRESHOLD,
+): string | null {
+  if (!needsLeafCheck(cumulative, byCheck, threshold)) return null;
+  return `確認してください（累計 ${cumulative}、検算 ${byCheck}）`;
+}

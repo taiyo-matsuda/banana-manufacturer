@@ -72,3 +72,33 @@ export async function createMat(fieldId: string, code: string, plantedAt = "2026
   if (error || !data) throw new Error(`株を作れません: ${error?.message}`);
   return data.id as string;
 }
+
+// 茎を DB に直接作る（茎の登録 UI は 1-5 で検証済み。葉数の記録などは茎の画面だけを見たい）
+export async function createStem(
+  matId: string,
+  options: {
+    generation?: number;
+    parentStemId?: string | null;
+    status?: "sucker" | "active" | "flowered" | "harvested" | "removed" | "transplanted" | "lost";
+    startedAt?: string;
+    initialLeafCount?: number | null;
+  } = {},
+) {
+  const supabase = await supabaseAsA();
+  const { generation = 1, parentStemId = null, status = "active", startedAt = "2026-09-15", initialLeafCount = 2 } = options;
+  const { data, error } = await supabase
+    .from("stems")
+    .insert({
+      mat_id: matId,
+      generation,
+      parent_stem_id: parentStemId,
+      status,
+      started_at: startedAt,
+      adopted_at: status === "sucker" ? null : startedAt,
+      initial_leaf_count: initialLeafCount,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(`茎を作れません: ${error?.message}`);
+  return data.id as string;
+}
