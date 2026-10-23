@@ -19,6 +19,16 @@ export async function login(
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // 認証情報の誤り以外（API キーの不一致、URL の誤りなど設定の問題）は区別して見せる。
+    // 本番（Vercel）の環境変数の設定ミスを「パスワードが違う」と誤認しないため。
+    const invalidCredentials = /invalid login credentials/i.test(error.message);
+    if (!invalidCredentials) {
+      console.error("login: supabase auth error", error.status, error.message);
+      return {
+        error: `ログインできませんでした（設定の問題の可能性があります: ${error.message}）`,
+        email,
+      };
+    }
     return { error: "メールアドレスまたはパスワードが正しくありません", email };
   }
   redirect("/");
