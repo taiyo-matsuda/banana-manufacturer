@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { HistoryPhoto } from "@/lib/stems/records";
 
 // 履歴の写真サムネイル。タップで原寸（アップロード時に縮小済み）を全画面に表示する。
@@ -9,46 +11,50 @@ export function PhotoThumb({ photo, alt }: { photo: HistoryPhoto; alt: string })
   const [open, setOpen] = useState(false);
   if (!photo.url) {
     return (
-      <span className="flex h-16 w-16 items-center justify-center rounded bg-zinc-200 text-xs text-zinc-500 dark:bg-zinc-800" data-testid="history-photo-missing">
+      <span
+        className="flex size-16 shrink-0 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground"
+        data-testid="history-photo-missing"
+      >
         画像なし
       </span>
     );
   }
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="ghost"
         onClick={() => setOpen(true)}
-        className="block h-16 w-16 shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800"
+        className="size-16 shrink-0 overflow-hidden rounded-lg bg-muted p-0"
         aria-label={`${alt} を拡大`}
         data-testid="history-photo-open"
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- 署名付き URL（1 時間で失効）なので next/image の最適化は通さない */}
-        <img src={photo.url} alt={alt} className="h-full w-full object-cover" data-testid="history-photo-thumb" data-photo-id={photo.id} />
-      </button>
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={alt}
-          className="fixed inset-0 z-50 flex flex-col bg-black/90"
-          onClick={() => setOpen(false)}
+        <img src={photo.url} alt={alt} className="size-full object-cover" data-testid="history-photo-thumb" data-photo-id={photo.id} />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="top-0 left-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none bg-black p-0 text-white sm:max-w-none"
           data-testid="photo-viewer"
         >
+          <DialogTitle className="sr-only">{alt}</DialogTitle>
           <div className="flex justify-end p-3">
-            <button
+            <Button
               type="button"
-              className="rounded-lg bg-white/10 px-4 py-2 text-base text-white"
+              variant="secondary"
               onClick={() => setOpen(false)}
+              className="bg-white/15 text-white hover:bg-white/25"
               data-testid="photo-viewer-close"
             >
               閉じる
-            </button>
+            </Button>
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element -- 同上 */}
-          <img src={photo.url} alt={alt} className="min-h-0 flex-1 object-contain" data-testid="photo-viewer-image" />
-        </div>
-      )}
+          <img src={photo.url} alt={alt} className="min-h-0 flex-1 object-contain" data-testid="photo-viewer-image" onClick={() => setOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

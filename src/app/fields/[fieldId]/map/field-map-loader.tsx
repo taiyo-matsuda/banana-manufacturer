@@ -7,7 +7,7 @@ import type { FieldMapProps } from "./field-map";
 const FieldMap = dynamic(() => import("./field-map").then((m) => m.FieldMap), {
   ssr: false,
   loading: () => (
-    <p className="px-4 py-6 text-sm text-zinc-500" data-testid="map-loading">
+    <p className="px-4 py-6 text-muted-foreground" data-testid="map-loading">
       地図を読み込み中…
     </p>
   ),

@@ -1,26 +1,135 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+  UI のトークン（UX-1）。画面はこの値に従い、色・角丸・文字サイズ・間隔を個別に決めない。
+  - 色: primary は緑系 1 色（manifest.ts の THEME_COLOR と同じ #2f6f3e）。白文字との対比 6.0:1（WCAG AA）
+  - 文字: 基本 16px、行間 1.6（屋外で読む前提で大きめ・広め）
+  - 角丸: 1 種類（--radius）。shadcn の radius-sm〜4xl もすべて同じ値にする
+  - 間隔: Tailwind の 4px 刻み（gap-2 / gap-4 / p-4 …）だけを使う
+  - ダークモード: 端末の設定（prefers-color-scheme）に従う（従来どおり）
+*/
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+  /* 補助の文字も小さくしすぎない（xs 13px / sm 15px / base 16px） */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6rem;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #2f6f3e;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2ee;
+  --secondary-foreground: #1f3a26;
+  --muted: #f1f3f1;
+  --muted-foreground: #4b5550;
+  --accent: #e4efe6;
+  --accent-foreground: #1f3a26;
+  --destructive: #b3261e;
+  --warning: #fff4d6;
+  --warning-foreground: #6b4a00;
+  --border: #c9d0cb;
+  --input: #c9d0cb;
+  --ring: #2f6f3e;
+  --radius: 0.75rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --card: #161a17;
+    --card-foreground: #ededed;
+    --popover: #161a17;
+    --popover-foreground: #ededed;
+    --primary: #4c9a5e;
+    --primary-foreground: #06140a;
+    --secondary: #1f2621;
+    --secondary-foreground: #e4efe6;
+    --muted: #1f2621;
+    --muted-foreground: #b3bcb6;
+    --accent: #243329;
+    --accent-foreground: #e4efe6;
+    --destructive: #ff7a70;
+    --warning: #3d2e00;
+    --warning-foreground: #ffe08a;
+    --border: #3a443d;
+    --input: #3a443d;
+    --ring: #4c9a5e;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    font-size: 16px;
+    /* iOS で入力にフォーカスしたときの自動ズームを避ける（入力の文字を 16px 以上にしているので不要） */
+    -webkit-text-size-adjust: 100%;
+    /* 固定のヘッダ（h-14）と下部タブ（h-16 + safe-area）の分だけ、フォーカスや scrollIntoView の位置をずらす
+       （入力欄やボタンが下部タブの裏に隠れないように） */
+    scroll-padding-top: 4rem;
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+  body {
+    @apply bg-background text-foreground;
+    line-height: 1.6;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* 地図（MapLibre）の拡大縮小ボタン: 既定の 29px をタップ領域の下限 44px に（UX-1 完了条件 6）。
+   maplibre-gl.css は地図の画面で後から読み込まれるので、詳細度を上げて上書きする */
+.maplibregl-map .maplibregl-ctrl-group button {
+  width: 44px;
+  height: 44px;
+}
+.maplibregl-map .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  background-size: 28px;
 }

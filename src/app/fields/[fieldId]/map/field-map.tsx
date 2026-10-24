@@ -11,6 +11,15 @@ import {
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { FormField } from "@/components/app/form-field";
+import { NumberField } from "@/components/app/number-field";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { bearingDeg, distanceM, gridPoints, type LatLng } from "@/lib/geo";
 import {
   MAT_ORIGIN_LABELS,
@@ -68,13 +77,6 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-const inputClass =
-  "h-12 w-full rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
-const primaryButtonClass =
-  "h-12 rounded-lg bg-green-700 px-4 text-base font-medium text-white disabled:opacity-60";
-const secondaryButtonClass =
-  "h-12 rounded-lg border border-zinc-300 px-4 text-base dark:border-zinc-700 disabled:opacity-60";
-
 function setLatLngAttrs(el: HTMLElement, p: LatLng) {
   el.dataset.lat = String(p.lat);
   el.dataset.lng = String(p.lng);
@@ -83,6 +85,14 @@ function setLatLngAttrs(el: HTMLElement, p: LatLng) {
 function makeDot(className: string): HTMLDivElement {
   const el = document.createElement("div");
   el.className = className;
+  return el;
+}
+
+// タップできる点（株・プレビュー）: 見た目の点は小さいまま、透明な 44px の当たり判定で包む（UX-1 完了条件 6）。
+// data-* やイベントは外側（当たり判定）に付ける。MapLibre の Marker は要素の中心を座標に合わせるので位置は変わらない
+function makeTapTarget(dotClassName: string, extraClassName = ""): HTMLDivElement {
+  const el = makeDot(`flex size-11 items-center justify-center ${extraClassName}`);
+  el.appendChild(makeDot(`pointer-events-none ${dotClassName}`));
   return el;
 }
 
@@ -277,8 +287,9 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     if (!map) return;
     for (const m of matMarkersRef.current) m.remove();
     matMarkersRef.current = mats.map((mat) => {
-      const el = makeDot(
-        "h-3.5 w-3.5 cursor-pointer rounded-full border-2 border-white bg-green-500 shadow",
+      const el = makeTapTarget(
+        "h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 shadow",
+        "cursor-pointer",
       );
       el.dataset.testid = "mat-marker";
       // mat.id をそのまま dataset / setAttribute に渡すと React Compiler の lint（react-hooks/immutability）が
@@ -299,8 +310,9 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     if (!map || !preview) return;
 
     const markers = preview.map((p, i) => {
-      const el = makeDot(
-        "h-6 w-6 cursor-grab rounded-full border-2 border-white bg-amber-400 shadow active:cursor-grabbing",
+      const el = makeTapTarget(
+        "h-6 w-6 rounded-full border-2 border-white bg-amber-400 shadow",
+        "cursor-grab active:cursor-grabbing",
       );
       el.dataset.testid = "preview-marker";
       el.dataset.index = String(i);
@@ -439,66 +451,59 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
   // 格子配置と 1株追加で共通の入力（品種・植え付け日・苗の種類）
   const commonFields = (
     <>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>品種</span>
-        <select
+      <FormField id="place-cultivar" label="品種">
+        <NativeSelect
+          id="place-cultivar"
           name="cultivarId"
           value={form.cultivarId}
           onChange={(e) => setForm({ ...form, cultivarId: e.target.value })}
-          className={inputClass}
         >
           {cultivars.map((c) => (
-            <option key={c.id} value={c.id}>
+            <NativeSelectOption key={c.id} value={c.id}>
               {c.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>植え付け日</span>
-        <input
+        </NativeSelect>
+      </FormField>
+      <FormField id="place-planted-at" label="植え付け日">
+        <Input
+          id="place-planted-at"
           type="date"
           name="plantedAt"
           value={form.plantedAt}
           onChange={(e) => setForm({ ...form, plantedAt: e.target.value })}
-          className={inputClass}
         />
-      </label>
-      <fieldset className="flex flex-col gap-1 text-sm">
-        <legend>苗の種類</legend>
-        <div className="flex gap-4">
+      </FormField>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="font-medium">苗の種類</legend>
+        <RadioGroup
+          name="originType"
+          value={form.originType}
+          onValueChange={(v) => setForm({ ...form, originType: v as MatOriginType })}
+          className="flex gap-6"
+        >
           {MAT_ORIGIN_TYPES.map((t) => (
-            <label key={t} className="flex min-h-12 items-center gap-2">
-              <input
-                type="radio"
-                name="originType"
-                value={t}
-                checked={form.originType === t}
-                onChange={() => setForm({ ...form, originType: t })}
-                className="h-5 w-5"
-              />
-              {MAT_ORIGIN_LABELS[t]}
-            </label>
+            <div key={t} className="flex min-h-11 items-center gap-2">
+              <RadioGroupItem id={`place-origin-${t}`} value={t} />
+              <Label htmlFor={`place-origin-${t}`} className="font-normal">
+                {MAT_ORIGIN_LABELS[t]}
+              </Label>
+            </div>
           ))}
-        </div>
+        </RadioGroup>
       </fieldset>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>初期葉数</span>
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          step={1}
-          name="initialLeafCount"
-          value={form.initialLeafCount}
-          onChange={(e) => setForm({ ...form, initialLeafCount: e.target.value })}
-          className={inputClass}
-          placeholder="省略可"
-        />
-        <span className="text-xs text-zinc-500">
-          入れると株と同時に最初の茎も登録する（全株に同じ値。例外は株の詳細で直す）。省略すると茎は後から株の詳細で登録する
-        </span>
-      </label>
+      <NumberField
+        id="place-initial-leaf-count"
+        label="初期葉数"
+        unit="枚"
+        hint="入れると株と同時に最初の茎も登録する（全株に同じ値。例外は株の詳細で直す）。省略すると茎は後から株の詳細で登録する"
+        min={0}
+        step={1}
+        name="initialLeafCount"
+        value={form.initialLeafCount}
+        onChange={(e) => setForm({ ...form, initialLeafCount: e.target.value })}
+        placeholder="省略可"
+      />
     </>
   );
 
@@ -514,128 +519,109 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
         data-testid="field-map"
         data-map-ready={mapReady ? "true" : "false"}
         data-mode={mode}
-        className="h-[55vh] min-h-72 w-full bg-zinc-200 dark:bg-zinc-800"
+        className="h-[55vh] min-h-72 w-full bg-muted"
         aria-label="圃場マップ"
       />
 
-      <section className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 py-4">
-        <p className="text-sm text-zinc-600 dark:text-zinc-400" data-testid="mat-count">
+      <section className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-4">
+        <p className="text-muted-foreground" data-testid="mat-count">
           株 {mats.length}
         </p>
 
         {mode === "idle" && (
           <div className="flex flex-col gap-3">
-            <button type="button" className={primaryButtonClass} onClick={startPlacement}>
+            <Button type="button" size="lg" onClick={startPlacement}>
               配置を始める
-            </button>
-            <button type="button" className={secondaryButtonClass} onClick={startSingle}>
+            </Button>
+            <Button type="button" size="lg" variant="outline" onClick={startSingle}>
               1株追加
-            </button>
+            </Button>
           </div>
         )}
 
-        {mode === "single-form" && (
-          <form className="flex flex-col gap-3" onSubmit={confirmSingle} noValidate>
-            {commonFields}
-            <button
-              type="submit"
-              className={primaryButtonClass}
-              disabled={saving}
-              data-testid="single-confirm"
-            >
-              {saving ? "保存中…" : "確定（1 株）"}
-            </button>
-          </form>
+        {mode !== "idle" && (
+          <Alert data-testid="place-status" aria-live="polite">
+            <AlertDescription>{statusText[mode]}</AlertDescription>
+          </Alert>
         )}
 
-        {mode !== "idle" && (
-          <p className="text-sm" data-testid="place-status" aria-live="polite">
-            {statusText[mode]}
-          </p>
+        {mode === "single-form" && (
+          <Card>
+            <CardContent>
+              <form className="flex flex-col gap-4" onSubmit={confirmSingle} noValidate>
+                {commonFields}
+                <Button type="submit" size="lg" disabled={saving} data-testid="single-confirm">
+                  {saving ? "保存中…" : "確定（1 株）"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         )}
 
         {(mode === "form" || mode === "preview") && (
-          <form className="flex flex-col gap-3" onSubmit={generatePreview} noValidate>
-            {directionInfo && <p className="text-xs text-zinc-500">{directionInfo}</p>}
-            <div className="grid grid-cols-3 gap-3">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>列数</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  name="rows"
-                  value={form.rows}
-                  onChange={(e) => setForm({ ...form, rows: e.target.value })}
-                  className={inputClass}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>1列の本数</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  name="perRow"
-                  value={form.perRow}
-                  onChange={(e) => setForm({ ...form, perRow: e.target.value })}
-                  className={inputClass}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>株間（m）</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0.1}
-                  step={0.1}
-                  name="spacingM"
-                  value={form.spacingM}
-                  onChange={(e) => setForm({ ...form, spacingM: e.target.value })}
-                  className={inputClass}
-                />
-              </label>
-            </div>
-            {commonFields}
-            <div className="flex gap-3">
-              <button type="submit" className={secondaryButtonClass} disabled={saving}>
-                プレビュー
-              </button>
-              {mode === "preview" && (
-                <button
-                  type="button"
-                  className={primaryButtonClass}
-                  onClick={confirm}
-                  disabled={saving}
-                  data-testid="place-confirm"
-                >
-                  {saving ? "保存中…" : `確定（${preview?.length ?? 0} 株）`}
-                </button>
-              )}
-            </div>
-          </form>
+          <Card>
+            <CardContent>
+              <form className="flex flex-col gap-4" onSubmit={generatePreview} noValidate>
+                {directionInfo && <p className="text-sm text-muted-foreground">{directionInfo}</p>}
+                <div className="grid grid-cols-3 gap-3">
+                  <NumberField
+                    id="place-rows"
+                    label="列数"
+                    min={1}
+                    name="rows"
+                    value={form.rows}
+                    onChange={(e) => setForm({ ...form, rows: e.target.value })}
+                  />
+                  <NumberField
+                    id="place-per-row"
+                    label="1列の本数"
+                    min={1}
+                    name="perRow"
+                    value={form.perRow}
+                    onChange={(e) => setForm({ ...form, perRow: e.target.value })}
+                  />
+                  <NumberField
+                    id="place-spacing"
+                    label="株間（m）"
+                    inputMode="decimal"
+                    min={0.1}
+                    step={0.1}
+                    name="spacingM"
+                    value={form.spacingM}
+                    onChange={(e) => setForm({ ...form, spacingM: e.target.value })}
+                  />
+                </div>
+                {commonFields}
+                <div className="flex gap-3">
+                  <Button type="submit" size="lg" variant="outline" className="flex-1" disabled={saving}>
+                    プレビュー
+                  </Button>
+                  {mode === "preview" && (
+                    <Button type="button" size="lg" className="flex-1" onClick={confirm} disabled={saving} data-testid="place-confirm">
+                      {saving ? "保存中…" : `確定（${preview?.length ?? 0} 株）`}
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
         )}
 
         {mode !== "idle" && (
-          <button
-            type="button"
-            className={secondaryButtonClass}
-            onClick={cancelPlacement}
-            disabled={saving}
-          >
+          <Button type="button" size="lg" variant="outline" onClick={cancelPlacement} disabled={saving}>
             やめる
-          </button>
+          </Button>
         )}
 
         {error && (
-          <p role="alert" data-testid="place-error" className="text-sm text-red-600 dark:text-red-400">
-            {error}
-          </p>
+          <Alert variant="destructive" data-testid="place-error">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
         {notice && (
-          <p data-testid="place-notice" className="text-sm text-green-700 dark:text-green-400">
-            {notice}
-          </p>
+          <Alert variant="success" data-testid="place-notice">
+            <AlertDescription>{notice}</AlertDescription>
+          </Alert>
         )}
       </section>
     </div>

@@ -13,6 +13,21 @@
 - MVP はスマホ（iPhone）の PWA。ネイティブアプリにはしない。Sign Up は無効。
 - 画面の都合をデータモデルに持ち込まない。
 
+## UI の決まり（UX-1 以降。必ず守る）
+
+- 画面は `src/components/ui/`（shadcn/ui）と `src/components/app/`（アプリ固有の部品）の部品で作る。
+- `src/app/` に生の `<input>` / `<button>` / `<select>` / `<textarea>` を書かない。
+  確認: `grep -rn "<input\|<button\|<select\|<textarea" src/app`（0 件であること。`src/components/ui/` は対象外）。
+  例外の生要素（写真の `<input type="file">` など）は `src/components/app/` の部品の中にだけ置く。
+- 色・間隔・文字サイズ・角丸は `src/app/globals.css` のトークンに従う（primary は緑 1 色、角丸は 1 種類、間隔は 4 の倍数）。画面ごとに独自の色や `zinc-*` 直書きをしない。
+- 文字は本文・入力・ボタンが 16px（`text-base`）以上。例外として補助の文字（ヒント・日時・単位、下部タブのラベル、ヘッダの「戻る」、控えめにする「増えていない（+0）」）は `text-sm`（15px）/ `text-xs`（13px）を使ってよい。それより小さくしない。
+- 色の直書きの例外: 写真の全画面ビューア（`photo-thumb.tsx`）は写真を見せるため常に黒背景・白文字（`bg-black` / `text-white`）にする。地図上の点の色（MapLibre の DOM）も従来どおり。
+- 新しい画面には `PageHeader`（← 戻る・タイトル・ホーム）と `BottomNav`（ホーム / 地図 / 予測 / 設定）を付ける。通常は `AppScreen` で両方を付ける（ログイン・オフライン画面を除く）。
+- 現場の記録ボタンは `RecordButton`（高さ 64px 以上）、数値入力は `NumberField`、ラベル付き入力は `FormField`。タップ領域は 44px 以上（地図上の株の点も、見た目は小さく当たり判定は 44px）。
+- 見つからない画面（404）は `src/app/not-found.tsx`（ヘッダのホームと下部タブあり）。
+- 未同期件数は `layout.tsx` の `SyncStatus` が 1 つだけ出す（画面ごとに置かない。クライアント遷移で前の画面の DOM が残るため）。
+- reviewer はこれらの違反を FAIL にする。
+
 ## 技術スタック
 
 - Next.js（App Router、TypeScript、Tailwind）、PWA

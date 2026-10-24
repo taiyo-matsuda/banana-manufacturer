@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDb } from "@/lib/db";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { applyOutbox } from "@/lib/offline/overlay";
@@ -57,13 +59,7 @@ export function StemRecordClient({ stem }: { stem: StemView }) {
   }, [stem, items, photoUrls]);
 
   return (
-    <article className="flex flex-col gap-6" data-testid="stem-record" data-pending-count={items.length}>
-      <nav className="flex flex-wrap gap-x-4 text-sm">
-        <Link href={`/mats/${stem.mat.id}`} className="text-green-700 underline dark:text-green-400" data-testid="stem-mat-link">
-          株 {stem.mat.code} へ
-        </Link>
-      </nav>
-
+    <article className="flex flex-col gap-4" data-testid="stem-record" data-pending-count={items.length}>
       <StemHeader stem={view} />
 
       {view.canRecord ? (
@@ -79,24 +75,32 @@ export function StemRecordClient({ stem }: { stem: StemView }) {
           />
         </>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="record-closed">
+        <p className="text-muted-foreground" data-testid="record-closed">
           この茎は{stemStatusLabel(view.status)}のため記録できません。履歴だけ見られます
         </p>
       )}
 
-      <section className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-base font-semibold">履歴</h2>
-          <Link
-            href={`/stems/${stem.id}/history`}
-            className="text-sm text-green-700 underline dark:text-green-400"
-            data-testid="stem-history-link"
-          >
-            履歴を開く
-          </Link>
-        </div>
-        <StemHistory entries={view.history} />
-      </section>
+      <Button asChild variant="outline">
+        <Link href={`/mats/${stem.mat.id}`} data-testid="stem-mat-link">
+          株 {stem.mat.code} へ
+        </Link>
+      </Button>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>履歴</CardTitle>
+          <CardAction>
+            <Button asChild variant="link" size="sm" className="px-0">
+              <Link href={`/stems/${stem.id}/history`} data-testid="stem-history-link">
+                履歴を開く
+              </Link>
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <StemHistory entries={view.history} />
+        </CardContent>
+      </Card>
     </article>
   );
 }

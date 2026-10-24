@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
+import { SyncStatus } from "@/components/app/sync-status";
 import { THEME_COLOR } from "./manifest";
 import { RegisterServiceWorker } from "./register-sw";
-import { SyncStatus } from "./sync-status";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,9 +28,11 @@ export const metadata: Metadata = {
   icons: { apple: { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" } },
 };
 
-// themeColor は Next.js 16 では metadata ではなく viewport に置く
+// themeColor は Next.js 16 では metadata ではなく viewport に置く。
+// viewport-fit=cover で iPhone の safe-area-inset を使えるようにする（下部タブの余白）
 export const viewport: Viewport = {
   themeColor: THEME_COLOR,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -41,8 +44,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         {/* Service Worker の登録（アプリの殻のキャッシュ。データ同期はしない） */}
         <RegisterServiceWorker />
-        {/* 全画面のヘッダ: 未同期件数（1-9）。同期のトリガーもここで登録する */}
-        <SyncStatus />
+        {/* 未同期件数（1-9）。画面ごとではなくここに 1 つだけ置き、各画面の PageHeader の右側に重ねて表示する。
+            usePathname を使うので、動的ルートでは Suspense が要る（cacheComponents） */}
+        <Suspense fallback={null}>
+          <SyncStatus />
+        </Suspense>
         {children}
       </body>
     </html>

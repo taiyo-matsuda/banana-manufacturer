@@ -1,38 +1,44 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PlusIcon } from "lucide-react";
+import { AppScreen, LoadingText } from "@/components/app/app-screen";
+import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
+import { LogoutButton } from "@/components/app/logout-button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/server";
-import { FieldForm } from "./field-form";
 
-// 画面 6「圃場の設定」: 一覧＋新規登録。代表点は緯度経度の入力（地図タップは 1-3 で追加）。
+// 画面 6「圃場の設定」（下部タブ「設定」）: 圃場の一覧と「＋ 圃場を追加」（登録は別画面 /fields/new）、ログアウト。
+// 一覧に登録フォームは置かない（UX-1 完了条件 3）。
 export default function FieldsPage() {
   return (
-    <main className="flex flex-1 flex-col gap-8 px-4 py-6">
-      <div className="mx-auto flex w-full max-w-md flex-col gap-8">
-        <header className="flex items-center gap-3">
-          <Link href="/" className="text-sm text-green-700 underline dark:text-green-400">
-            ホーム
-          </Link>
-          <h1 className="text-xl font-semibold">圃場</h1>
-        </header>
-
-        <section aria-labelledby="fields-list-heading" className="flex flex-col gap-3">
-          <h2 id="fields-list-heading" className="text-base font-medium">
-            圃場の一覧
-          </h2>
-          <Suspense fallback={<p className="text-sm text-zinc-500">読み込み中…</p>}>
+    <AppScreen title="圃場" backHref="/" backLabel="ホーム" current="settings">
+      <Card>
+        <CardHeader>
+          <CardTitle>圃場の一覧</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Suspense fallback={<LoadingText />}>
             <FieldList />
           </Suspense>
-        </section>
+          <Button asChild variant="outline" size="lg" data-testid="field-add">
+            <Link href="/fields/new">
+              <PlusIcon aria-hidden="true" />
+              圃場を追加
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
-        <section aria-labelledby="fields-new-heading" className="flex flex-col gap-3">
-          <h2 id="fields-new-heading" className="text-base font-medium">
-            新規登録
-          </h2>
-          <FieldForm />
-        </section>
-      </div>
-    </main>
+      <Separator />
+
+      <section aria-label="アカウント" className="flex flex-col gap-2">
+        <LogoutButton />
+      </section>
+    </AppScreen>
   );
 }
 
@@ -50,7 +56,7 @@ async function FieldList() {
 
   if (error) {
     return (
-      <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+      <p role="alert" className="text-destructive">
         圃場の一覧を取得できませんでした（{error.message}）
       </p>
     );
@@ -58,37 +64,31 @@ async function FieldList() {
 
   if (!fields || fields.length === 0) {
     return (
-      <p data-testid="fields-empty" className="text-sm text-zinc-500">
+      <p data-testid="fields-empty" className="text-muted-foreground">
         圃場がまだありません
       </p>
     );
   }
 
   return (
-    <ul data-testid="fields-list" className="flex flex-col divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+    <LinkList data-testid="fields-list">
       {fields.map((f) => (
-        <li key={f.id} data-testid="field-row">
-          <Link
-            href={`/fields/${f.id}`}
-            className="flex min-h-14 items-center justify-between gap-3 px-3 py-2"
-          >
-            <span className="flex flex-col">
-              <span className="text-base font-medium" data-testid="field-name">
+        <LinkListItem key={f.id} data-testid="field-row">
+          <LinkRow href={`/fields/${f.id}`}>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate font-medium" data-testid="field-name">
                 {f.name}
               </span>
-              <span className="text-xs text-zinc-500" data-testid="field-center">
+              <span className="text-sm text-muted-foreground" data-testid="field-center">
                 {f.center_lat}, {f.center_lng}
               </span>
             </span>
-            <span
-              className="rounded bg-zinc-100 px-2 py-1 font-mono text-sm dark:bg-zinc-800"
-              data-testid="field-code"
-            >
+            <Badge variant="outline" className="font-mono" data-testid="field-code">
               {f.code}
-            </span>
-          </Link>
-        </li>
+            </Badge>
+          </LinkRow>
+        </LinkListItem>
       ))}
-    </ul>
+    </LinkList>
   );
 }

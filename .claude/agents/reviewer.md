@@ -21,6 +21,7 @@ PowerShell はテストやビルドの実行にのみ使い、ファイルを書
 2. 変更されたファイルを読む（implementer の報告に列挙されているが、報告を信用せず自分で読む）。
    - 方針違反がないか: `organization_id` をアプリから渡していないか、観測・イベントを更新・削除していないか、品種を圃場に持たせていないか、写真の参照の向きが正しいか、画面の都合がデータモデルに入っていないか。
    - 既存マイグレーションが編集されていないか。
+   - `src/app/` に生の `<input>`/`<button>`/`<select>`/`<textarea>` が無いか grep する（`grep -rn "<input\|<button\|<select\|<textarea" src/app`。`src/components/ui/` は対象外）。1 件でもあれば FAIL（`CLAUDE.md`「UI の決まり」）。
 3. 自動テストを実行する。
    ```
    npm run check

@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { formatDateTime, type HistoryEntry } from "@/lib/stems/records";
 import { PhotoThumb } from "./photo-thumb";
 
@@ -7,17 +8,17 @@ import { PhotoThumb } from "./photo-thumb";
 export function StemHistory({ entries }: { entries: HistoryEntry[] }) {
   if (entries.length === 0) {
     return (
-      <p className="text-sm text-zinc-500" data-testid="history-empty">
+      <p className="text-muted-foreground" data-testid="history-empty">
         記録なし
       </p>
     );
   }
   return (
-    <ol className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800" data-testid="history-list">
+    <ol className="flex flex-col divide-y" data-testid="history-list">
       {entries.map((e) => (
         <li
           key={e.key}
-          className={`flex items-center justify-between gap-3 py-2 text-sm ${e.superseded ? "text-zinc-400 line-through" : ""}`}
+          className={`flex items-center justify-between gap-3 py-3 ${e.superseded ? "text-muted-foreground line-through" : ""}`}
           data-testid="history-item"
           data-kind={e.kind}
           data-type={e.type}
@@ -25,29 +26,22 @@ export function StemHistory({ entries }: { entries: HistoryEntry[] }) {
           data-pending={e.pending ? "true" : undefined}
           data-photo-id={e.photo?.id}
         >
-          <span className="flex items-center gap-3">
+          <span className="flex min-w-0 items-center gap-3">
             {e.photo && <PhotoThumb photo={e.photo} alt={`${e.label}（${e.valueText}）${formatDateTime(e.at)}`} />}
-            <span>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-medium" data-testid="history-label">
                 {e.label}
               </span>
-              {e.valueText && (
-                <span className="ml-2" data-testid="history-value">
-                  {e.valueText}
-                </span>
-              )}
-              {e.superseded && <span className="ml-2 text-xs">訂正済み</span>}
+              {e.valueText && <span data-testid="history-value">{e.valueText}</span>}
+              {e.superseded && <span className="text-xs">訂正済み</span>}
               {e.pending && (
-                <span
-                  className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
-                  data-testid="history-pending"
-                >
+                <Badge variant="outline" className="border-warning-foreground/40 bg-warning text-warning-foreground" data-testid="history-pending">
                   未同期
-                </span>
+                </Badge>
               )}
             </span>
           </span>
-          <span className="flex shrink-0 flex-col items-end text-xs text-zinc-500">
+          <span className="flex shrink-0 flex-col items-end text-xs text-muted-foreground">
             <time dateTime={e.at.toISOString()} data-testid="history-at">
               {formatDateTime(e.at)}
             </time>

@@ -1,6 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { FormField } from "@/components/app/form-field";
+import { NumberField } from "@/components/app/number-field";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { enqueueStemEvent } from "@/lib/offline/enqueue";
 import { stemStatusLabel } from "@/lib/stems/status";
 import {
@@ -17,13 +25,6 @@ import {
   stemEventLabel,
   todayJst,
 } from "@/lib/stemEvents";
-
-const inputClass =
-  "h-12 w-full rounded-lg border border-zinc-300 px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
-const selectClass =
-  "h-12 w-full rounded-lg border border-zinc-300 bg-white px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
-const eventButtonClass =
-  "h-16 min-w-[7rem] flex-1 rounded-xl bg-amber-700 px-4 text-lg font-semibold text-white active:bg-amber-800 disabled:opacity-60";
 
 // 茎のイベント（1-8、画面 4「イベント」）。
 // 茎の状態（未送信のイベントを反映した見かけの状態）に応じてボタンを出し分ける（stemEvents.ts の表）。
@@ -97,45 +98,52 @@ export function EventRecord({
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-label="イベント" data-testid="event-section">
-      <h2 className="text-base font-semibold">イベント</h2>
-      {lastType && opened === null && (
-        <p data-testid="event-notice" className="text-sm text-green-700 dark:text-green-400">
-          {STEM_EVENT_LABELS[lastType]}を記録しました
-        </p>
-      )}
-      <div className="flex flex-wrap gap-3" data-testid="event-buttons">
-        {types.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={eventButtonClass}
-            disabled={pending}
-            onClick={() => {
-              setError(null);
-              setOpened(t);
+    <Card aria-label="イベント" data-testid="event-section">
+      <CardHeader>
+        <CardTitle>イベント</CardTitle>
+        <CardDescription>出蕾・袋掛け・収穫など。確認してから記録します</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {lastType && opened === null && (
+          <Alert variant="success" data-testid="event-notice">
+            <AlertDescription>{STEM_EVENT_LABELS[lastType]}を記録しました</AlertDescription>
+          </Alert>
+        )}
+        <div className="grid grid-cols-2 gap-3" data-testid="event-buttons">
+          {types.map((t) => (
+            <Button
+              key={t}
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="h-16 text-lg"
+              disabled={pending}
+              onClick={() => {
+                setError(null);
+                setOpened(t);
+              }}
+              data-testid={`event-button-${t}`}
+            >
+              {STEM_EVENT_LABELS[t]}
+            </Button>
+          ))}
+        </div>
+        {opened !== null && (
+          <EventDialog
+            key={`${opened}:${succeeded}`}
+            stemId={stemId}
+            type={opened}
+            defaultEarliestAt={defaultEarliestAt}
+            error={error}
+            pending={pending}
+            onSubmit={submit}
+            onCancel={() => {
+              if (!pending) setOpened(null);
             }}
-            data-testid={`event-button-${t}`}
-          >
-            {STEM_EVENT_LABELS[t]}
-          </button>
-        ))}
-      </div>
-      {opened !== null && (
-        <EventDialog
-          key={`${opened}:${succeeded}`}
-          stemId={stemId}
-          type={opened}
-          defaultEarliestAt={defaultEarliestAt}
-          error={error}
-          pending={pending}
-          onSubmit={submit}
-          onCancel={() => {
-            if (!pending) setOpened(null);
-          }}
-        />
-      )}
-    </section>
+          />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -158,135 +166,143 @@ function EventDialog({
 }) {
   const label = STEM_EVENT_LABELS[type];
   const today = todayJst();
+  const description =
+    type === "bud_emerged"
+      ? "累計葉数はこの時点の値が自動で記録されます"
+      : type === "harvested"
+        ? "収穫を記録すると、この茎は収穫済みになり記録入力が閉じます"
+        : type === "damage"
+          ? "程度を「喪失」にすると茎は終了します"
+          : `${label}を記録します。よろしいですか？`;
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${label}を記録`}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-      data-testid="event-dialog"
-      data-type={type}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && !pending) onCancel();
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
       }}
     >
-      <form
-        onSubmit={(e) => {
-          // 自前で FormData を組んで渡す（エラー後も入力値が残る。フォームは自動でリセットされない）
-          e.preventDefault();
-          if (pending) return;
-          void onSubmit(new FormData(e.currentTarget));
-        }}
-        noValidate
-        className="flex max-h-[90vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 dark:bg-zinc-950 sm:rounded-2xl"
+      <DialogContent
+        showCloseButton={false}
+        // 開いた瞬間に日付入力へフォーカスが入ると、iPhone では日付ピッカーが勝手に開くので、自動フォーカスしない
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="max-h-[90vh] overflow-y-auto"
+        data-testid="event-dialog"
+        data-type={type}
       >
-        <input type="hidden" name="stemId" value={stemId} />
-        <input type="hidden" name="type" value={type} />
-        <h3 className="text-lg font-semibold">{label}を記録</h3>
+        <form
+          onSubmit={(e) => {
+            // 自前で FormData を組んで渡す（エラー後も入力値が残る。フォームは自動でリセットされない）
+            e.preventDefault();
+            if (pending) return;
+            void onSubmit(new FormData(e.currentTarget));
+          }}
+          noValidate
+          className="flex flex-col gap-4"
+        >
+          <Input type="hidden" name="stemId" value={stemId} />
+          <Input type="hidden" name="type" value={type} />
+          <DialogHeader>
+            <DialogTitle>{label}を記録</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span>{type === "bud_emerged" ? "確認日" : "日付"}</span>
-          <input type="date" name="date" defaultValue={today} required className={inputClass} data-testid="event-date" />
-        </label>
+          <FormField id="event-date" label={type === "bud_emerged" ? "確認日" : "日付"}>
+            <Input id="event-date" type="date" name="date" defaultValue={today} required data-testid="event-date" />
+          </FormField>
 
-        {type === "bud_emerged" && (
-          <>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>前回訪問日（蕾がまだ無かった日。空でもよい）</span>
-              <input
-                type="date"
-                name="earliestAt"
-                defaultValue={defaultEarliestAt ?? ""}
-                className={inputClass}
-                data-testid="event-earliest-at"
+          {type === "bud_emerged" && (
+            <>
+              <FormField id="event-earliest-at" label="前回訪問日" hint="蕾がまだ無かった日。空でもよい">
+                <Input
+                  id="event-earliest-at"
+                  type="date"
+                  name="earliestAt"
+                  defaultValue={defaultEarliestAt ?? ""}
+                  data-testid="event-earliest-at"
+                />
+              </FormField>
+              <NumberField id="event-leaves-current" label="生葉数" unit="枚" min={0} step={1} name="leavesCurrent" data-testid="event-leaves-current" />
+              <NumberField
+                id="event-girth-cm"
+                label="偽茎周囲長（地上 1m）"
+                unit="cm"
+                inputMode="decimal"
+                min={0}
+                step={0.1}
+                name="girthCm"
+                data-testid="event-girth-cm"
               />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>生葉数（枚）</span>
-              <input type="number" inputMode="numeric" min={0} step={1} name="leavesCurrent" className={inputClass} data-testid="event-leaves-current" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>偽茎周囲長（cm、地上 1m）</span>
-              <input type="number" inputMode="decimal" min={0} step={0.1} name="girthCm" className={inputClass} data-testid="event-girth-cm" />
-            </label>
-            <p className="text-xs text-zinc-500">累計葉数はこの時点の値が自動で記録されます</p>
-          </>
-        )}
+            </>
+          )}
 
-        {type === "hands_counted" && (
-          <label className="flex flex-col gap-1 text-sm">
-            <span>段数（苞が開ききった時点）</span>
-            <input type="number" inputMode="numeric" min={1} step={1} name="hands" className={inputClass} data-testid="event-hands" />
-          </label>
-        )}
+          {type === "hands_counted" && (
+            <NumberField
+              id="event-hands"
+              label="段数"
+              unit="段"
+              hint="苞が開ききった時点"
+              min={1}
+              step={1}
+              name="hands"
+              data-testid="event-hands"
+            />
+          )}
 
-        {type === "harvested" && (
-          <label className="flex flex-col gap-1 text-sm">
-            <span>果房重量（kg、小数 1 桁）</span>
-            <input type="number" inputMode="decimal" min={0} step={0.1} name="weightKg" className={inputClass} data-testid="event-weight-kg" />
-          </label>
-        )}
+          {type === "harvested" && (
+            <NumberField
+              id="event-weight-kg"
+              label="果房重量"
+              unit="kg"
+              hint="小数 1 桁"
+              inputMode="decimal"
+              min={0}
+              step={0.1}
+              name="weightKg"
+              data-testid="event-weight-kg"
+            />
+          )}
 
-        {type === "damage" && (
-          <>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>種類</span>
-              <select name="kind" defaultValue="" className={selectClass} data-testid="event-kind">
-                <option value="">選んでください</option>
-                {DAMAGE_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {DAMAGE_KIND_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>程度（喪失にすると茎は終了します）</span>
-              <select name="severity" defaultValue="" className={selectClass} data-testid="event-severity">
-                <option value="">選んでください</option>
-                {DAMAGE_SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {DAMAGE_SEVERITY_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
+          {type === "damage" && (
+            <>
+              <FormField id="event-kind" label="種類">
+                <NativeSelect id="event-kind" name="kind" defaultValue="" data-testid="event-kind">
+                  <NativeSelectOption value="">選んでください</NativeSelectOption>
+                  {DAMAGE_KINDS.map((k) => (
+                    <NativeSelectOption key={k} value={k}>
+                      {DAMAGE_KIND_LABELS[k]}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </FormField>
+              <FormField id="event-severity" label="程度">
+                <NativeSelect id="event-severity" name="severity" defaultValue="" data-testid="event-severity">
+                  <NativeSelectOption value="">選んでください</NativeSelectOption>
+                  {DAMAGE_SEVERITIES.map((s) => (
+                    <NativeSelectOption key={s} value={s}>
+                      {DAMAGE_SEVERITY_LABELS[s]}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </FormField>
+            </>
+          )}
 
-        {(type === "bagged" || type === "debudded") && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">{label}を記録します。よろしいですか？</p>
-        )}
-        {type === "harvested" && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">収穫を記録すると、この茎は収穫済みになり記録入力が閉じます</p>
-        )}
+          {error && (
+            <Alert variant="destructive" data-testid="event-error">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        {error && (
-          <p role="alert" data-testid="event-error" className="text-sm text-red-600 dark:text-red-400">
-            {error}
-          </p>
-        )}
-
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            className="h-14 flex-1 rounded-xl border border-zinc-300 text-base font-medium dark:border-zinc-700"
-            data-testid="event-cancel"
-          >
-            やめる
-          </button>
-          <button
-            type="submit"
-            disabled={pending}
-            className="h-14 flex-1 rounded-xl bg-amber-700 text-base font-semibold text-white active:bg-amber-800 disabled:opacity-60"
-            data-testid="event-submit"
-          >
-            {pending ? "記録中…" : "記録する"}
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter className="flex-row gap-3">
+            <Button type="button" variant="outline" size="lg" className="flex-1" onClick={onCancel} disabled={pending} data-testid="event-cancel">
+              やめる
+            </Button>
+            <Button type="submit" size="lg" className="flex-1" disabled={pending} data-testid="event-submit">
+              {pending ? "記録中…" : "記録する"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,6 +2,11 @@
 
 import { useRef, useState } from "react";
 import exifr from "exifr";
+import { FormField } from "@/components/app/form-field";
+import { PhotoInput } from "@/components/app/photo-input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   fitWithinLongEdge,
   latLngFromExif,
@@ -15,10 +20,7 @@ import {
 } from "@/lib/photos";
 import { enqueuePhoto } from "@/lib/offline/enqueue";
 
-const selectClass =
-  "h-12 rounded-lg border border-zinc-300 bg-white px-3 text-base dark:border-zinc-700 dark:bg-zinc-900";
-
-// 茎の写真（1-7、画面 4）。<input type="file" capture> で撮影 → EXIF（撮影日時・GPS）を読む →
+// 茎の写真（1-7、画面 4）。PhotoInput（file 入力、capture="environment"）で撮影 → EXIF（撮影日時・GPS）を読む →
 // 長辺 2048px に縮小（JPEG）→ 端末の pendingPhotos（Blob）と outbox に保存（1-9）。
 // 同期ワーカーが Storage にアップロード（同じパスに upsert）→ photos に追記する。圏外でも撮影・記録できる。
 // 写真の id と Storage のパスは端末で採番する（organization_id はサーバーから props で受け取る）。
@@ -65,48 +67,37 @@ export function PhotoCapture({ stemId, userId, organizationId }: { stemId: strin
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-label="写真">
-      <h2 className="text-base font-semibold">写真</h2>
-      <div className="flex items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>種類</span>
-          <select
-            name="kind"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as PhotoKind)}
-            disabled={busy}
-            className={selectClass}
-            data-testid="photo-kind"
-          >
-            {PHOTO_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {PHOTO_KIND_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label
-          className={`flex h-12 flex-1 cursor-pointer items-center justify-center rounded-lg bg-green-700 px-4 text-base font-medium text-white ${busy ? "opacity-60" : "active:bg-green-800"}`}
-        >
-          <span data-testid="photo-status">{phaseLabel(phase)}</span>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={onChange}
-            disabled={busy}
-            className="sr-only"
-            data-testid="photo-input"
-          />
-        </label>
-      </div>
-      {error && (
-        <p role="alert" data-testid="photo-error" className="text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-    </section>
+    <Card aria-label="写真">
+      <CardHeader>
+        <CardTitle>写真</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex items-end gap-3">
+          <FormField id="photo-kind" label="種類" className="w-36 shrink-0">
+            <NativeSelect
+              id="photo-kind"
+              name="kind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as PhotoKind)}
+              disabled={busy}
+              data-testid="photo-kind"
+            >
+              {PHOTO_KINDS.map((k) => (
+                <NativeSelectOption key={k} value={k}>
+                  {PHOTO_KIND_LABELS[k]}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <PhotoInput label={phaseLabel(phase)} busy={busy} onChange={onChange} inputRef={inputRef} className="h-12 flex-1" />
+        </div>
+        {error && (
+          <Alert variant="destructive" data-testid="photo-error">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
