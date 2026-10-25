@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { MapIcon, PencilIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
@@ -14,6 +14,7 @@ import { FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE, firstStemPlantedAtDiffers } from
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
 import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
 import { generationLabel, sortStemsByGeneration, stemStatusLabel } from "@/lib/stems/status";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { StemForm } from "./stem-form";
 
@@ -49,61 +50,48 @@ function originLabel(originType: string): string {
 async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   const { matId } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  // RLS により他組織の株は見えない（0 件 → notFound）
-  const { data: mat } = await supabase
-    .from("mats")
-    .select(
-      "id, code, planted_at, origin_type, origin_stem_id, status, fields ( id, name, code ), cultivars ( name )",
-    )
-    .eq("id", matId)
-    .maybeSingle();
+  // PERF-1: ユーザー・株・茎（葉の観測を埋め込み）は matId だけで引けるので、1 回の Promise.all で並べて取る
+  // （Supabase への直列の往復は 1 回）。
+  // - 株: RLS により他組織の株は見えない（0 件 → notFound）。由来（株分けの元の茎が属する株）は
+  //   mats.origin_stem_id の FK（mats_origin_stem_fk）で埋め込む（1-4 時点では origin_stem_id は null のみ）
+  // - 茎: 累計葉数 = 初期葉数 + Σ leaves_new（現在の値 = superseded_by が null の観測だけ）。
+  //   埋め込んだ observations を type / superseded_by で絞る（茎の行は絞らない）
+  const [currentUser, { data: mat }, { data: stemRows, error: stemsError }] = await Promise.all([
+    getCurrentUser(),
+    supabase
+      .from("mats")
+      .select(
+        "id, code, planted_at, origin_type, origin_stem_id, status, fields ( id, name, code ), cultivars ( name ), origin_stem:stems!mats_origin_stem_fk ( mat:mats!stems_mat_id_fkey ( id, code ) )",
+      )
+      .eq("id", matId)
+      .maybeSingle(),
+    supabase
+      .from("stems")
+      .select("id, generation, status, started_at, initial_leaf_count, observations ( type, value, observed_at )")
+      .eq("mat_id", matId)
+      .eq("observations.type", "leaves_new")
+      .is("observations.superseded_by", null)
+      .order("generation")
+      .order("started_at"),
+  ]);
+  const user = userOrRedirect(currentUser);
   if (!mat) notFound();
 
   const field = mat.fields as unknown as { id: string; name: string; code: string } | null;
   const cultivar = mat.cultivars as unknown as { name: string } | null;
+  const originMat = mat.origin_stem_id
+    ? ((mat.origin_stem as unknown as { mat: { id: string; code: string } | null } | null)?.mat ?? null)
+    : null;
 
-  const [{ data: stems, error: stemsError }, originMat] = await Promise.all([
-    supabase
-      .from("stems")
-      .select("id, generation, status, started_at, initial_leaf_count")
-      .eq("mat_id", mat.id)
-      .order("generation")
-      .order("started_at"),
-    // 由来: 株分けなら元の茎が属する株へのリンク（1-4 時点では origin_stem_id は null のみ）
-    mat.origin_stem_id
-      ? supabase
-          .from("stems")
-          .select("mat_id, mats ( id, code )")
-          .eq("id", mat.origin_stem_id)
-          .maybeSingle()
-          .then((r) => (r.data?.mats as unknown as { id: string; code: string } | null) ?? null)
-      : Promise.resolve(null),
-  ]);
+  const sortedStems = sortStemsByGeneration(stemRows ?? []);
 
-  const sortedStems = sortStemsByGeneration(stems ?? []);
-
-  // 累計葉数 = 初期葉数 + Σ leaves_new（現在の値 = superseded_by が null の観測だけ）
   const leavesByStem = new Map<string, LeafObservation[]>();
-  if (sortedStems.length > 0) {
-    const { data: observations } = await supabase
-      .from("observations")
-      .select("stem_id, type, value, observed_at")
-      .in(
-        "stem_id",
-        sortedStems.map((s) => s.id),
-      )
-      .eq("type", "leaves_new")
-      .is("superseded_by", null);
-    for (const o of observations ?? []) {
-      const list = leavesByStem.get(o.stem_id) ?? [];
-      list.push({ type: "leaves_new", value: Number(o.value), observedAt: new Date(o.observed_at) });
-      leavesByStem.set(o.stem_id, list);
-    }
+  for (const s of sortedStems) {
+    leavesByStem.set(
+      s.id,
+      (s.observations ?? []).map((o) => ({ type: "leaves_new", value: Number(o.value), observedAt: new Date(o.observed_at) })),
+    );
   }
 
   // 茎の登録: 栽培中（active / flowered）が 3 本ならフォームを出さず理由を表示（DB の正本はトリガー）

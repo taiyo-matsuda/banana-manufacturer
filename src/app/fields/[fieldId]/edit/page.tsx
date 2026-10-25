@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { ResetOnLeave } from "@/components/app/reset-on-leave";
 import {
@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { FieldForm } from "../../field-form";
 
@@ -37,17 +38,13 @@ export default function EditFieldPage({
 async function EditField({ params }: { params: Promise<{ fieldId: string }> }) {
   const { fieldId } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
   // RLS により他組織の圃場は見えない（0 件 → notFound）
-  const { data: field } = await supabase
-    .from("fields")
-    .select("id, name, code, center_lat, center_lng, notes")
-    .eq("id", fieldId)
-    .maybeSingle();
+  // PERF-1: ユーザーの確認と圃場の select を並べる（直列の往復 2 → 1）
+  const [currentUser, { data: field }] = await Promise.all([
+    getCurrentUser(),
+    supabase.from("fields").select("id, name, code, center_lat, center_lng, notes").eq("id", fieldId).maybeSingle(),
+  ]);
+  userOrRedirect(currentUser);
   if (!field) notFound();
 
   return (

@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { ResetOnLeave } from "@/components/app/reset-on-leave";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { isOriginTypeEditable } from "@/lib/mats/edit";
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { MatEditForm } from "./mat-edit-form";
 
@@ -44,13 +45,10 @@ const ORIGIN_LABELS: Record<string, string> = {
 async function EditMat({ params }: { params: Promise<{ matId: string }> }) {
   const { matId } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
   // RLS により他組織の株は見えない（0 件 → notFound）
-  const [{ data: mat }, { data: cultivars }] = await Promise.all([
+  // PERF-1: ユーザーの確認も株・品種の select と並べる（直列の往復 2 → 1）
+  const [currentUser, { data: mat }, { data: cultivars }] = await Promise.all([
+    getCurrentUser(),
     supabase
       .from("mats")
       .select("id, code, cultivar_id, planted_at, origin_type, fields ( name )")
@@ -58,6 +56,7 @@ async function EditMat({ params }: { params: Promise<{ matId: string }> }) {
       .maybeSingle(),
     supabase.from("cultivars").select("id, name").order("name"),
   ]);
+  userOrRedirect(currentUser);
   if (!mat) notFound();
   const field = mat.fields as unknown as { name: string } | null;
 

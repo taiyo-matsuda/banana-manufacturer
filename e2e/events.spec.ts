@@ -60,7 +60,10 @@ async function observationRows(stemId: string) {
     .from("observations")
     .select("id, type, value, observed_at, observed_by")
     .eq("stem_id", stemId)
-    .order("observed_at");
+    // 出蕾の生葉数と周囲長は同じ observed_at なので、type（enum の宣言順: leaves_new < leaves_current < pseudostem_girth_cm）
+    // を 2 番目の並びにして順序を決める（同時刻の並びは保証されないため）
+    .order("observed_at")
+    .order("type");
   if (error) throw new Error(`観測を取得できません: ${error.message}`);
   return data!;
 }

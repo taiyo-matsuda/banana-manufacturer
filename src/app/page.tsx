@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { DeviceOwner } from "@/components/app/device-store";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
@@ -7,6 +6,7 @@ import { RecentMats } from "@/components/app/recent-mats";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
@@ -29,10 +29,8 @@ export default function Home() {
 
 async function OrganizationHeader() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // 自分の profile は user.id で引くので、getUser の後（直列の往復 2 回）
+  const user = await requireUser();
 
   const { data: profile } = await supabase
     .from("profiles")

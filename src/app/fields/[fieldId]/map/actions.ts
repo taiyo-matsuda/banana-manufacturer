@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { nextMatCodes } from "@/lib/mats/code";
 import { type PlaceMatsInput, validatePlaceMatsInput } from "@/lib/mats/placement";
@@ -14,27 +15,30 @@ export type PlaceMatsResult = { ok: true; mats: PlacedMat[] } | { ok: false; err
 // 株コードは `圃場記号-3桁連番`。連番はその圃場の既存の最大番号の次から（サーバー側で採番する）。
 export async function placeMats(input: PlaceMatsInput): Promise<PlaceMatsResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // 入力の検証は DB を読まない純粋な関数なので先に済ませ、圃場・既存の株の select をユーザーの確認と並べる
+  // （PERF-1: 直列の往復 3 → 1。その後に insert）。返す順（未ログイン → 入力 → 圃場 → 既存の株）は変えない。
+  // insert はユーザー確認の後
+  const validation = validatePlaceMatsInput(input);
+  const fieldIdForRead = validation.ok ? validation.value.fieldId : null;
+  const [user, reads] = await Promise.all([
+    getCurrentUser(),
+    fieldIdForRead
+      ? Promise.all([
+          // RLS により自組織の圃場しか見えない
+          supabase.from("fields").select("id, code").eq("id", fieldIdForRead).maybeSingle(),
+          supabase.from("mats").select("code").eq("field_id", fieldIdForRead),
+        ])
+      : null,
+  ]);
   if (!user) return { ok: false, error: "ログインが必要です" };
 
-  const validation = validatePlaceMatsInput(input);
   if (!validation.ok) return validation;
+  if (!reads) return { ok: false, error: "圃場が見つかりません" };
   const { fieldId, cultivarId, plantedAt, originType, points, initialLeafCount } = validation.value;
+  const [{ data: field, error: fieldError }, { data: existing, error: existingError }] = reads;
 
-  // RLS により自組織の圃場しか見えない
-  const { data: field, error: fieldError } = await supabase
-    .from("fields")
-    .select("id, code")
-    .eq("id", fieldId)
-    .maybeSingle();
   if (fieldError || !field) return { ok: false, error: "圃場が見つかりません" };
 
-  const { data: existing, error: existingError } = await supabase
-    .from("mats")
-    .select("code")
-    .eq("field_id", fieldId);
   if (existingError) {
     console.error("mats select failed", { code: existingError.code, message: existingError.message });
     return { ok: false, error: "既存の株を取得できませんでした。時間をおいて再度お試しください" };

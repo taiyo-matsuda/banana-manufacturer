@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { redirect } from "next/navigation";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import {
   canAddActiveStem,
   isMaxActiveStemsError,
@@ -34,22 +34,21 @@ export async function registerStem(
   });
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // PERF-1: ユーザーの確認と、株・茎の読み取り（matId だけで引ける）を並べる（直列の往復 3 → 1。その後に insert）。
+  // 判定の順（未ログイン → 入力の検証 → 株がない → 茎を取れない）は変えない。insert はユーザー確認の後
+  // RLS により他組織の株は見えない（茎も 0 件）
+  const [currentUser, { data: mat }, { data: stems, error: stemsError }] = await Promise.all([
+    getCurrentUser(),
+    supabase.from("mats").select("id").eq("id", matId).maybeSingle(),
+    supabase.from("stems").select("id, generation, status, started_at").eq("mat_id", matId),
+  ]);
+  userOrRedirect(currentUser);
 
   const validation = validateStemInput(values);
   if (!validation.ok) return fail(null, validation.errors);
 
-  // RLS により他組織の株は見えない
-  const { data: mat } = await supabase.from("mats").select("id").eq("id", matId).maybeSingle();
   if (!mat) return fail("株が見つかりません");
 
-  const { data: stems, error: stemsError } = await supabase
-    .from("stems")
-    .select("id, generation, status, started_at")
-    .eq("mat_id", mat.id);
   if (stemsError) {
     console.error("stems select failed", { code: stemsError.code, message: stemsError.message });
     return fail("茎を取得できませんでした。時間をおいて再度お試しください");

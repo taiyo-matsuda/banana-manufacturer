@@ -1,6 +1,7 @@
 import "server-only";
 
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
 import {
@@ -38,53 +39,53 @@ export type StemView = {
 
 // 茎の記録入力（画面 4）と履歴（画面 8）で共通の読み込み。
 // Suspense 境界の内側から呼ぶ（cookies() を読む）。他組織の茎は RLS で見えず notFound。
+// PERF-1: ユーザー・茎・観測・イベント・写真は stemId だけで引けるので、1 回の Promise.all で並べて取る
+// （Supabase への直列の往復は 1 回。写真があるときだけ署名付き URL でもう 1 回）。
+// 組織 ID は茎の行の organization_id を使う（RLS の stems_all で見える茎は current_org() の行だけなので、
+// profile の organization_id と同じ値。profile の select を省く）。
 export async function loadStem(stemId: string): Promise<StemView> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   // stems → mats は FK が 2 本（mat_id と origin_stem の逆参照）あるので、埋め込む関係を明示する
-  const { data: stem, error: stemError } = await supabase
-    .from("stems")
-    .select("id, generation, status, initial_leaf_count, mats!stems_mat_id_fkey ( id, code )")
-    .eq("id", stemId)
-    .maybeSingle();
-  if (stemError) throw new Error(`茎を取得できませんでした（${stemError.message}）`);
-  if (!stem) notFound();
-  const mat = stem.mats as unknown as { id: string; code: string } | null;
-  if (!mat) notFound();
-
   const [
+    currentUser,
+    { data: stem, error: stemError },
     { data: observations, error: obsError },
     { data: events, error: evError },
     { data: photos, error: phError },
-    { data: profile, error: profileError },
   ] = await Promise.all([
+    getCurrentUser(),
+    supabase
+      .from("stems")
+      .select("id, organization_id, generation, status, initial_leaf_count, mats!stems_mat_id_fkey ( id, code )")
+      .eq("id", stemId)
+      .maybeSingle(),
     supabase
       .from("observations")
       .select("id, type, value, observed_at, superseded_by, profiles ( display_name )")
-      .eq("stem_id", stem.id)
+      .eq("stem_id", stemId)
       .order("observed_at", { ascending: false }),
     supabase
       .from("events")
       .select("id, type, occurred_at, payload, superseded_by, profiles ( display_name )")
       .eq("target_type", "stem")
-      .eq("target_id", stem.id)
+      .eq("target_id", stemId)
       .order("occurred_at", { ascending: false }),
     supabase
       .from("photos")
       .select("id, kind, taken_at, storage_path, profiles ( display_name )")
       .eq("target_type", "stem")
-      .eq("target_id", stem.id)
+      .eq("target_id", stemId)
       .order("taken_at", { ascending: false }),
-    supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle(),
   ]);
+  const user = userOrRedirect(currentUser);
+  if (stemError) throw new Error(`茎を取得できませんでした（${stemError.message}）`);
+  if (!stem) notFound();
+  const mat = stem.mats as unknown as { id: string; code: string } | null;
+  if (!mat) notFound();
   if (obsError) throw new Error(`観測を取得できませんでした（${obsError.message}）`);
   if (evError) throw new Error(`イベントを取得できませんでした（${evError.message}）`);
   if (phError) throw new Error(`写真を取得できませんでした（${phError.message}）`);
-  if (profileError || !profile) throw new Error(`組織を取得できませんでした（${profileError?.message ?? "profile なし"}）`);
 
   // 非公開バケットなので署名付き URL をサーバーで作る（1 時間）。作れない写真は url=null（「画像なし」表示）
   const signedUrlByPath = new Map<string, string>();
@@ -144,7 +145,7 @@ export async function loadStem(stemId: string): Promise<StemView> {
     latestObservedOn: latestDateJst(observationRows.map((o) => o.observed_at)),
     history: buildHistory(observationRows, eventRows, photoRows),
     userId: user.id,
-    organizationId: profile.organization_id,
+    organizationId: stem.organization_id,
     observations: observationRows,
     events: eventRows,
     photos: photoRows,

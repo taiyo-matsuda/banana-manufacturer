@@ -1,0 +1,232 @@
+{
+  "label": "before",
+  "base": "https://banana-manufacturer-8f7t.vercel.app",
+  "runs": 5,
+  "at": "2026-10-25T03:23:06.575Z",
+  "loginMs": 5314,
+  "vercelRegions": [
+    "kix1"
+  ],
+  "ids": {
+    "fieldId": "311ae0c1-526f-4e7f-866f-401398ebf388",
+    "matId": "0a7bf1e6-63cd-4b41-95af-60bde8de8624",
+    "stemId": "ded53f3f-2ca2-4112-a9bc-12935c8dc818"
+  },
+  "summary": [
+    {
+      "screen": "ホーム",
+      "shownMedianMs": 1720,
+      "ttfbMedianMs": 1337
+    },
+    {
+      "screen": "圃場一覧",
+      "shownMedianMs": 1545,
+      "ttfbMedianMs": 1135
+    },
+    {
+      "screen": "圃場詳細",
+      "shownMedianMs": 1644,
+      "ttfbMedianMs": 1537
+    },
+    {
+      "screen": "株の詳細",
+      "shownMedianMs": 2059,
+      "ttfbMedianMs": 1959
+    },
+    {
+      "screen": "茎の画面",
+      "shownMedianMs": 2199,
+      "ttfbMedianMs": 2097
+    },
+    {
+      "screen": "株→茎（タップでクライアント遷移）",
+      "shownMedianMs": 1735
+    },
+    {
+      "screen": "+1 の記録",
+      "syncedMedianMs": 132,
+      "refreshedMedianMs": 1674
+    }
+  ],
+  "raw": {
+    "home": [
+      {
+        "shown": 1414,
+        "ttfb": 1330.5,
+        "vercelId": "kix1::2d965-1792898510921-bfae87deac23"
+      },
+      {
+        "shown": 2015.5999999940395,
+        "ttfb": 1606.7000000178814,
+        "vercelId": "kix1::9fnkp-1792898520982-ccaeda318d82"
+      },
+      {
+        "shown": 1720.0999999940395,
+        "ttfb": 1337.300000011921,
+        "vercelId": "kix1::9fnkp-1792898529693-df84b32089b9"
+      },
+      {
+        "shown": 1807,
+        "ttfb": 1406.0999999940395,
+        "vercelId": "kix1::9fnkp-1792898539211-bc6613630cc5"
+      },
+      {
+        "shown": 1318.300000011921,
+        "ttfb": 922.2000000178814,
+        "vercelId": "kix1::9svjv-1792898548044-30ee4c782519"
+      }
+    ],
+    "fields": [
+      {
+        "shown": 2124.5,
+        "ttfb": 1761.5,
+        "vercelId": "kix1::l7bxc-1792898512339-ef4ca6a1ea58"
+      },
+      {
+        "shown": 1543.8999999761581,
+        "ttfb": 1123.7999999821186,
+        "vercelId": "kix1::9fnkp-1792898523023-ef2974f9c56f"
+      },
+      {
+        "shown": 1565.0999999940395,
+        "ttfb": 1157.0999999940395,
+        "vercelId": "kix1::sk95b-1792898531431-833f81fe7c78"
+      },
+      {
+        "shown": 1492.2999999821186,
+        "ttfb": 1114.0999999940395,
+        "vercelId": "kix1::9svjv-1792898541028-a0406d2d8d17"
+      },
+      {
+        "shown": 1545.300000011921,
+        "ttfb": 1134.7000000178814,
+        "vercelId": "kix1::l7bxc-1792898549384-6de8bc8be647"
+      }
+    ],
+    "field": [
+      {
+        "shown": 1705.5,
+        "ttfb": 1616.7000000178814,
+        "vercelId": "kix1::2d965-1792898514485-f5f921326cde"
+      },
+      {
+        "shown": 1400.9000000059605,
+        "ttfb": 1294.2999999821186,
+        "vercelId": "kix1::4shfs-1792898524579-a6ba04eee51e"
+      },
+      {
+        "shown": 1686.199999988079,
+        "ttfb": 1572.699999988079,
+        "vercelId": "kix1::2d965-1792898533028-f8c0edec5024"
+      },
+      {
+        "shown": 1140.199999988079,
+        "ttfb": 1028.199999988079,
+        "vercelId": "kix1::2d965-1792898542544-078d99044862"
+      },
+      {
+        "shown": 1644.300000011921,
+        "ttfb": 1537.300000011921,
+        "vercelId": "kix1::dmwq4-1792898550949-b3c5e34461ef"
+      }
+    ],
+    "mat": [
+      {
+        "shown": 2366.899999976158,
+        "ttfb": 2242.0999999940395,
+        "vercelId": "kix1::l7bxc-1792898516205-a0e537288efe"
+      },
+      {
+        "shown": 1472.5,
+        "ttfb": 1377.5999999940395,
+        "vercelId": "kix1::9fnkp-1792898525993-c38c1bfc1b4c"
+      },
+      {
+        "shown": 2675.4000000059605,
+        "ttfb": 2589.0999999940395,
+        "vercelId": "kix1::2d965-1792898534734-0ec4401db2d2"
+      },
+      {
+        "shown": 2059.2999999821186,
+        "ttfb": 1958.7999999821186,
+        "vercelId": "kix1::9svjv-1792898543700-ca073319fbc6"
+      },
+      {
+        "shown": 1567,
+        "ttfb": 1431,
+        "vercelId": "kix1::kmnw9-1792898552614-226e75e033d1"
+      }
+    ],
+    "stem": [
+      {
+        "shown": 2377.800000011921,
+        "ttfb": 2246.2000000178814,
+        "vercelId": "kix1::l7bxc-1792898518585-c54d383105b1"
+      },
+      {
+        "shown": 2199.100000023842,
+        "ttfb": 2096.600000023842,
+        "vercelId": "kix1::9fnkp-1792898527477-1a0462498db5"
+      },
+      {
+        "shown": 1758.4000000059605,
+        "ttfb": 1644.699999988079,
+        "vercelId": "kix1::9svjv-1792898537420-ddb588d26060"
+      },
+      {
+        "shown": 2247.5,
+        "ttfb": 2149.5999999940395,
+        "vercelId": "kix1::9svjv-1792898545780-bbf35a745871"
+      },
+      {
+        "shown": 1693,
+        "ttfb": 1596.199999988079,
+        "vercelId": "kix1::kmnw9-1792898554195-2255286e549f"
+      }
+    ],
+    "clientNav": [
+      {
+        "shown": 1720.7999999821186
+      },
+      {
+        "shown": 1748.9000000059605
+      },
+      {
+        "shown": 1735.4000000059605
+      },
+      {
+        "shown": 1707.2999999821186
+      },
+      {
+        "shown": 1830.7000000178814
+      }
+    ],
+    "record": [
+      {
+        "synced": 280.30000001192093,
+        "refreshed": 1873.9000000059605,
+        "refreshTtfb": 257
+      },
+      {
+        "synced": 98,
+        "refreshed": 1673.8999999761581,
+        "refreshTtfb": 238
+      },
+      {
+        "synced": 125.19999998807907,
+        "refreshed": 1508.7999999821186,
+        "refreshTtfb": 333.30000001192093
+      },
+      {
+        "synced": 133.89999997615814,
+        "refreshed": 1660.5,
+        "refreshTtfb": 254.80000001192093
+      },
+      {
+        "synced": 132.40000000596046,
+        "refreshed": 1685.5,
+        "refreshTtfb": 275
+      }
+    ]
+  }
+}

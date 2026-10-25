@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { PlusIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
@@ -9,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 
 // 画面 6「圃場の設定」（下部タブ「設定」）: 圃場の一覧と「＋ 圃場を追加」（登録は別画面 /fields/new）、ログアウト。
@@ -44,15 +44,12 @@ export default function FieldsPage() {
 
 async function FieldList() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: fields, error } = await supabase
-    .from("fields")
-    .select("id, name, code, center_lat, center_lng")
-    .order("name");
+  // PERF-1: ユーザーの確認と一覧の select を並べる（直列の往復 2 → 1）
+  const [currentUser, { data: fields, error }] = await Promise.all([
+    getCurrentUser(),
+    supabase.from("fields").select("id, name, code, center_lat, center_lng").order("name"),
+  ]);
+  userOrRedirect(currentUser);
 
   if (error) {
     return (

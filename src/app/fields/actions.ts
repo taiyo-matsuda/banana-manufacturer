@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh, revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import {
   type CreateFieldState,
@@ -30,10 +30,8 @@ export async function createField(
   const values = readFieldInput(formData);
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // 書き込みの前にユーザーを確かめる（insert / update はユーザー確認の後。直列のまま）
+  await requireUser();
 
   const validation = validateFieldInput(values);
   if (!validation.ok) {
@@ -84,10 +82,8 @@ export async function updateField(
   });
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // 書き込みの前にユーザーを確かめる（insert / update はユーザー確認の後。直列のまま）
+  await requireUser();
 
   if (!UUID_PATTERN.test(fieldId)) return fail("圃場が見つかりません");
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { type MatEditInput, matUpdateErrorMessage, type UpdateMatState, validateMatEditInput } from "@/lib/mats/edit";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,15 +28,17 @@ export async function updateMat(prev: UpdateMatState, formData: FormData): Promi
   });
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  if (!UUID_PATTERN.test(matId)) return fail("株が見つかりません");
-
+  const validId = UUID_PATTERN.test(matId);
   // 苗の種類を変えてよいかは、保存されている値で決める（フォームの値を信用しない）
-  const { data: current } = await supabase.from("mats").select("id, origin_type").eq("id", matId).maybeSingle();
+  // PERF-1: ユーザーの確認と今の株の select を並べる（直列の往復 2 → 1。その後に update）。update はユーザー確認の後
+  const [currentUser, currentResult] = await Promise.all([
+    getCurrentUser(),
+    validId ? supabase.from("mats").select("id, origin_type").eq("id", matId).maybeSingle() : null,
+  ]);
+  userOrRedirect(currentUser);
+
+  if (!validId) return fail("株が見つかりません");
+  const current = currentResult?.data;
   if (!current) return fail("株が見つかりません");
 
   const validation = validateMatEditInput(values, current.origin_type);

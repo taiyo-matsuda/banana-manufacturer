@@ -8,6 +8,7 @@ import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 
 // 地図用の圃場選択（UX-1）。下部タブ「地図」は直近に開いた圃場の地図へ直接行く（端末に記録。bottom-nav.tsx）。
@@ -25,12 +26,12 @@ export default function MapTabPage() {
 
 async function FieldPicker() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: fields, error } = await supabase.from("fields").select("id, name, code").order("name");
+  // PERF-1: ユーザーの確認と一覧の select を並べる（直列の往復 2 → 1）
+  const [currentUser, { data: fields, error }] = await Promise.all([
+    getCurrentUser(),
+    supabase.from("fields").select("id, name, code").order("name"),
+  ]);
+  const user = userOrRedirect(currentUser);
   if (fields && fields.length === 1) redirect(`/fields/${fields[0].id}/map`);
 
   return (
