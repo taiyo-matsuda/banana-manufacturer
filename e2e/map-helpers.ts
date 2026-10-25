@@ -74,6 +74,32 @@ export async function createMat(fieldId: string, code: string, plantedAt = "2026
   return data.id as string;
 }
 
+type Field = Awaited<ReturnType<typeof createField>>;
+
+// 株をまとめて DB に作る（施肥 2-4・被害の一括 2-5 で共通）（コードは `<圃場記号>-001` から連番）。株コード順 = 作った順
+export async function createMats(field: Field, count: number) {
+  const supabase = await supabaseAsA();
+  const cultivarId = await dwarfNamwaId();
+  const rows = Array.from({ length: count }, (_, i) => ({
+    field_id: field.id,
+    code: `${field.code}-${String(i + 1).padStart(3, "0")}`,
+    cultivar_id: cultivarId,
+    lat: CENTER.lat,
+    lng: CENTER.lng,
+    planted_at: "2026-09-15",
+    origin_type: "tissue_culture",
+  }));
+  const { data, error } = await supabase.from("mats").insert(rows).select("id, code").order("code");
+  if (error || !data) throw new Error(`株を作れません: ${error?.message}`);
+  return data as { id: string; code: string }[];
+}
+
+export async function fieldWithMats(prefix: string, count: number) {
+  const field = await createField(prefix);
+  const mats = await createMats(field, count);
+  return { field, mats };
+}
+
 // 茎を DB に直接作る（茎の登録 UI は 1-5 で検証済み。葉数の記録などは茎の画面だけを見たい）
 export async function createStem(
   matId: string,

@@ -6,11 +6,11 @@ import { useRouter } from "next/navigation";
 import { RotateCcwIcon } from "lucide-react";
 import { cn } from "cn";
 import { FormField } from "@/components/app/form-field";
+import { MatSelectList, MatSelectRow, useMatExclusion } from "@/components/app/mat-select-list";
 import { NumberField } from "@/components/app/number-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -62,7 +62,6 @@ export function FertilizeForm({
   const [fertilizer, setFertilizer] = useState("");
   const [amount, setAmount] = useState("");
   const [unit, setUnit] = useState(defaultUnit);
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
   const [overrides, setOverrides] = useState<ReadonlyMap<string, string>>(() => new Map());
   // 確定を 1 回押すまではエラーを出さない（入力途中で赤くしない）
   const [showErrors, setShowErrors] = useState(false);
@@ -74,6 +73,10 @@ export function FertilizeForm({
   // （サーバーは同じ batch_id が既にあれば insert しない = 二重記録しない）。内容（日付・肥料名・単位・対象・量）が
   // 変わったとき、成功したとき、サーバーの検証エラーで戻ったときだけ採番し直す
   const batch = useRef<{ id: string; key: string } | null>(null);
+
+  const clearServerErrors = useCallback(() => setServerErrors((e) => (Object.keys(e).length === 0 ? e : {})), []);
+  // 外した株（株の一覧は圃場の被害の一括 2-5 と共通の部品 mat-select-list.tsx）
+  const { excluded, toggle, selectAll, selectNone } = useMatExclusion(clearServerErrors);
 
   const matIds = useMemo(() => mats.map((m) => m.id), [mats]);
   const deferredAmount = useDeferredValue(amount);
@@ -95,21 +98,6 @@ export function FertilizeForm({
   const firstError = errors.date ?? errors.fertilizer ?? errors.amount ?? errors.unit ?? errors.targets;
   const valid = dateCheck.ok && nameCheck.ok && plan.baseError === null && plan.rowErrors.size === 0 && plan.selectedCount > 0;
 
-  const clearServerErrors = useCallback(() => setServerErrors((e) => (Object.keys(e).length === 0 ? e : {})), []);
-
-  const toggle = useCallback(
-    (id: string, include: boolean) => {
-      clearServerErrors();
-      setExcluded((prev) => {
-        if (include === !prev.has(id)) return prev;
-        const next = new Set(prev);
-        if (include) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    },
-    [clearServerErrors],
-  );
   const setOverride = useCallback(
     (id: string, text: string) => {
       clearServerErrors();
@@ -170,7 +158,7 @@ export function FertilizeForm({
 
   const startNext = () => {
     setDone(null);
-    setExcluded(new Set());
+    selectAll();
     setOverrides(new Map());
     setShowErrors(false);
     setServerErrors({});
@@ -315,52 +303,38 @@ export function FertilizeForm({
           <CardTitle>対象の株</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {mats.length === 0 ? (
-            <p className="text-muted-foreground" data-testid="fertilize-no-mats">
-              この圃場には株がありません
-            </p>
-          ) : (
-            <>
-              <p className="tabular-nums" data-testid="fertilize-summary">
+          <MatSelectList
+            testIdPrefix="fertilize"
+            matIds={matIds}
+            onSelectAll={selectAll}
+            onSelectNone={selectNone}
+            summary={
+              <>
                 対象 <span data-testid="fertilize-count">{plan.selectedCount}</span> / {mats.length} 株・合計{" "}
                 <span data-testid="fertilize-total">{totalText}</span>
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button type="button" variant="outline" onClick={() => setExcluded(new Set())} data-testid="fertilize-select-all">
-                  全て選択
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setExcluded(new Set(matIds))}
-                  data-testid="fertilize-select-none"
-                >
-                  全て外す
-                </Button>
-              </div>
-              <ul className="flex flex-col divide-y" data-testid="fertilize-mat-list">
-                {mats.map((m) => {
-                  const override = overrides.get(m.id);
-                  return (
-                    <MatRow
-                      key={m.id}
-                      id={m.id}
-                      code={m.code}
-                      included={!excluded.has(m.id)}
-                      override={override}
-                      // 個別に変えた行には上の量を渡さない（上の量を変えても再描画しない）
-                      baseAmount={override === undefined ? deferredAmount : ""}
-                      unit={unit}
-                      error={showErrors && !excluded.has(m.id) ? (plan.rowErrors.get(m.id) ?? null) : null}
-                      onToggle={toggle}
-                      onOverride={setOverride}
-                      onReset={resetOverride}
-                    />
-                  );
-                })}
-              </ul>
-            </>
-          )}
+              </>
+            }
+          >
+            {mats.map((m) => {
+              const override = overrides.get(m.id);
+              return (
+                <MatRow
+                  key={m.id}
+                  id={m.id}
+                  code={m.code}
+                  included={!excluded.has(m.id)}
+                  override={override}
+                  // 個別に変えた行には上の量を渡さない（上の量を変えても再描画しない）
+                  baseAmount={override === undefined ? deferredAmount : ""}
+                  unit={unit}
+                  error={showErrors && !excluded.has(m.id) ? (plan.rowErrors.get(m.id) ?? null) : null}
+                  onToggle={toggle}
+                  onOverride={setOverride}
+                  onReset={resetOverride}
+                />
+              );
+            })}
+          </MatSelectList>
         </CardContent>
       </Card>
 
@@ -463,72 +437,67 @@ const MatRow = memo(function MatRow({
   onReset: (id: string) => void;
 }) {
   const overridden = override !== undefined;
-  const checkboxId = `fertilize-mat-${id}`;
   const amountId = `fertilize-mat-amount-${id}`;
   const errorId = `${amountId}-error`;
+  // チェック＋株コードの行は共通の部品（mat-select-list.tsx）。量の入力と戻すボタンを右側に足す
   return (
-    <li
-      // 画面外の行は描画（レイアウト・ペイント）を省く（400 株でも上の量の打鍵で詰まらないように）
-      className={cn("flex flex-col gap-1 py-2 [contain-intrinsic-size:auto_64px] [content-visibility:auto]", overridden && included && "-mx-2 rounded-lg bg-accent px-2", !included && "text-muted-foreground")}
-      data-testid="fertilize-mat-row"
-      data-code={code}
-      data-included={included ? "true" : "false"}
-      data-overridden={overridden ? "true" : undefined}
-    >
-      <div className="flex items-center gap-2">
-        <label htmlFor={checkboxId} className="flex min-h-12 min-w-0 flex-1 cursor-pointer items-center gap-3">
-          <Checkbox
-            id={checkboxId}
-            checked={included}
-            onChange={(e) => onToggle(id, e.target.checked)}
-            aria-label={`株 ${code} を対象にする`}
-            data-testid="fertilize-mat-check"
+    <MatSelectRow
+      testIdPrefix="fertilize"
+      id={id}
+      code={code}
+      included={included}
+      onToggle={onToggle}
+      highlighted={overridden}
+      dataAttributes={{ "data-overridden": overridden ? "true" : undefined }}
+      badge={
+        overridden &&
+        included && (
+          <Badge variant="outline" className="h-6 border-primary/40 text-primary" data-testid="fertilize-mat-overridden">
+            個別
+          </Badge>
+        )
+      }
+      trailing={
+        <>
+          <Input
+            id={amountId}
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            className={cn("w-24 text-right tabular-nums", overridden && "font-semibold")}
+            value={overridden ? override : baseAmount}
+            disabled={!included}
+            onChange={(e) => onOverride(id, e.target.value)}
+            aria-label={`株 ${code} の量（${unit}）`}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            data-testid="fertilize-mat-amount"
           />
-          <span className="flex min-w-0 flex-col items-start">
-            <span className={cn("max-w-full truncate font-mono text-base", !included && "line-through")}>{code}</span>
-            {overridden && included && (
-              <Badge variant="outline" className="h-6 border-primary/40 text-primary" data-testid="fertilize-mat-overridden">
-                個別
-              </Badge>
-            )}
-          </span>
-        </label>
-        <Input
-          id={amountId}
-          type="number"
-          inputMode="decimal"
-          step="any"
-          min="0"
-          className={cn("w-24 text-right tabular-nums", overridden && "font-semibold")}
-          value={overridden ? override : baseAmount}
-          disabled={!included}
-          onChange={(e) => onOverride(id, e.target.value)}
-          aria-label={`株 ${code} の量（${unit}）`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          data-testid="fertilize-mat-amount"
-        />
-        <span className="w-8 shrink-0 text-sm text-muted-foreground">{unit}</span>
-        {overridden && included ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onReset(id)}
-            aria-label={`株 ${code} の量を上の量に戻す`}
-            data-testid="fertilize-mat-reset"
-          >
-            <RotateCcwIcon aria-hidden="true" />
-          </Button>
-        ) : (
-          <span className="size-11 shrink-0" aria-hidden="true" />
-        )}
-      </div>
-      {error && (
-        <p id={errorId} role="alert" className="text-sm font-medium text-destructive" data-testid="fertilize-mat-error">
-          {error}
-        </p>
-      )}
-    </li>
+          <span className="w-8 shrink-0 text-sm text-muted-foreground">{unit}</span>
+          {overridden && included ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onReset(id)}
+              aria-label={`株 ${code} の量を上の量に戻す`}
+              data-testid="fertilize-mat-reset"
+            >
+              <RotateCcwIcon aria-hidden="true" />
+            </Button>
+          ) : (
+            <span className="size-11 shrink-0" aria-hidden="true" />
+          )}
+        </>
+      }
+      below={
+        error && (
+          <p id={errorId} role="alert" className="text-sm font-medium text-destructive" data-testid="fertilize-mat-error">
+            {error}
+          </p>
+        )
+      }
+    />
   );
 });

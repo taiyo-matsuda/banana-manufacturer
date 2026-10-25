@@ -139,6 +139,7 @@ export type EventRow = {
   superseded_by: string | null;
   recorder_name?: string | null;
   pending?: boolean;
+  note?: string | null; // events.note（圃場・株の被害のメモ 2-5 など）
 };
 
 // 写真（1-7）。url は非公開バケットの署名付き URL（サーバーで作る。作れなければ null）。
@@ -164,6 +165,7 @@ export type HistoryEntry = {
   by: string | null;
   superseded: boolean; // 訂正済み（打ち消し表示）
   pending: boolean; // 未同期（「未同期」の印）
+  note?: string; // イベントのメモ（events.note）。なければ省く
   photo?: HistoryPhoto; // kind === "photo" のときだけ
 };
 
@@ -197,6 +199,7 @@ export function buildHistory(
       by: e.recorder_name ?? null,
       superseded: e.superseded_by !== null,
       pending: e.pending === true,
+      ...(e.note ? { note: e.note } : {}),
     })),
     ...photos.map<HistoryEntry>((p) => ({
       key: `photo:${p.id}`,

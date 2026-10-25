@@ -96,6 +96,19 @@ describe("buildHistory", () => {
     expect(buildHistory([], [])).toEqual([]);
   });
 
+  it("イベントのメモ（events.note）があれば付ける。なければ付けない（圃場・株の被害 2-5）", () => {
+    const h = buildHistory(
+      [],
+      [
+        { id: "d1", type: "damage", occurred_at: "2026-10-02T00:00:00Z", payload: { kind: "lodging", severity: "severe" }, superseded_by: null, note: "台風 14 号" },
+        { id: "d2", type: "damage", occurred_at: "2026-10-01T00:00:00Z", payload: { kind: "cold", severity: "light" }, superseded_by: null, note: null },
+      ],
+    );
+    expect(h[0]).toMatchObject({ label: "被害", valueText: "倒伏・重", note: "台風 14 号" });
+    expect(h[1]).toMatchObject({ valueText: "寒害・軽" });
+    expect("note" in h[1]).toBe(false);
+  });
+
   it("同時刻は観測 → イベント → 写真の順", () => {
     const h = buildHistory(
       [{ id: "o", type: "leaves_new", value: 1, observed_at: "2026-10-01T00:00:00Z", superseded_by: null }],

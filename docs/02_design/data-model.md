@@ -166,7 +166,7 @@ active / flowered ── damage(喪失) ──▶ lost
 | harvested | stem | `{weight_kg}` |
 | leaves_removed | stem | `{count}` |
 | fertilized | mat | `{fertilizer, amount, unit, batch_id}`（一括入力は株ごとに展開。batch_id で束ねる） |
-| damage | stem / mat / field | `{kind: 倒伏/裂葉/折損/寒害/病害, severity: light/moderate/severe/lost}` |
+| damage | stem / mat / field | `{kind: 倒伏/裂葉/折損/寒害/病害, severity: light/moderate/severe/lost}`。lost は stem のときだけ（圃場・株では選べない。株を失ったなら mat_removed）。メモ（例: 台風 14 号）は `note` 列。圃場の被害から株へ一括で記録したもの（2-5）は mat ごとに展開し、payload に `field_event_id`（元の圃場の被害イベント）と `batch_id`（確定ごとに 1 つ。再送で二重にしない）を足す |
 | sucker_emerged | stem（親茎） | `{sucker_stem_id, parent_cumulative_leaves, earliest_at, direction, sucker_type}`。同時に新しい stem を status=sucker、parent_stem_id=親茎、generation=親+1 で作る。`parent_cumulative_leaves` はその時点の親の累計葉数を自動で記録（残す吸芽の基準 X の根拠。要件 5.3）。`direction` は 8 方位（N/NE/E/SE/S/SW/W/NW）、`sucker_type` は `sword`（剣葉）/ `water`（水吸芽） |
 | sucker_adopted | stem | `{initial_leaf_count}` |
 | sucker_removed | stem | `{}` |

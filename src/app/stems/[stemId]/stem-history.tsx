@@ -33,6 +33,11 @@ export function StemHistory({ entries }: { entries: HistoryEntry[] }) {
                 {e.label}
               </span>
               {e.valueText && <span data-testid="history-value">{e.valueText}</span>}
+              {e.note && (
+                <span className="basis-full break-words text-muted-foreground" data-testid="history-note">
+                  {e.note}
+                </span>
+              )}
               {e.superseded && <span className="text-xs">訂正済み</span>}
               {e.pending && (
                 <Badge variant="outline" className="border-warning-foreground/40 bg-warning text-warning-foreground" data-testid="history-pending">

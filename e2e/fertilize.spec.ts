@@ -1,38 +1,12 @@
 import type { Page } from "@playwright/test";
 import { ACTION_TIMEOUT, expect, supabaseAsA, test } from "./helpers";
-import { CENTER, createField, dwarfNamwaId } from "./map-helpers";
+import { fieldWithMats } from "./map-helpers";
 
 // 2-4 施肥の一括入力（画面 5）。完了条件 1・2 を 1 つずつ検証し、加えて
 // 上の量を変えると個別に変えていない株が追従する / 撤去した株は一覧に出ない / 肥料名が空・量が 0 以下・対象 0 株なら
 // 確定できず理由が出る / サーバーのエラーで戻っても入力・選択・個別の量が残る / 2 回目の施肥で前回の肥料名が候補に出る /
 // 圏外では確定できず理由が出る / 100 株の圃場でも一覧の操作と確定ができる、を確かめる。
 // テスト農園 A でログイン済み（setup の storageState）。圃場・株は DB に直接作る（名前は E2E で始め、setup の掃除で消える）。
-
-type Field = Awaited<ReturnType<typeof createField>>;
-
-// 株をまとめて DB に作る（コードは `<圃場記号>-001` から連番）。株コード順 = 作った順
-async function createMats(field: Field, count: number) {
-  const supabase = await supabaseAsA();
-  const cultivarId = await dwarfNamwaId();
-  const rows = Array.from({ length: count }, (_, i) => ({
-    field_id: field.id,
-    code: `${field.code}-${String(i + 1).padStart(3, "0")}`,
-    cultivar_id: cultivarId,
-    lat: CENTER.lat,
-    lng: CENTER.lng,
-    planted_at: "2026-09-15",
-    origin_type: "tissue_culture",
-  }));
-  const { data, error } = await supabase.from("mats").insert(rows).select("id, code").order("code");
-  if (error || !data) throw new Error(`株を作れません: ${error?.message}`);
-  return data as { id: string; code: string }[];
-}
-
-async function fieldWithMats(prefix: string, count: number) {
-  const field = await createField(prefix);
-  const mats = await createMats(field, count);
-  return { field, mats };
-}
 
 type FertilizedRow = {
   target_id: string;
