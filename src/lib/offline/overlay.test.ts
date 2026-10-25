@@ -3,8 +3,17 @@ import { cumulativeLeaves } from "../leaves";
 import { buildHistory, canRecordLeaves, toLeafObservations, type EventRow, type ObservationRow, type PhotoRow } from "../stems/records";
 import { canRecordEvent } from "../stemEvents";
 import { cumulativeLeavesAsOf } from "../suckers";
-import { newLeavesRemovedItem, newObservationItem, newPhotoItem, newStemEventItem, newSuckerEmergedItem, outboxItemLabel } from "./items";
-import { applyOutbox, applyOutboxToMat, itemsForStem, matHoldKey, type MatStemRow } from "./overlay";
+import {
+  newAdoptSuckerItem,
+  newLeavesRemovedItem,
+  newObservationItem,
+  newPhotoItem,
+  newRemoveSuckerItem,
+  newStemEventItem,
+  newSuckerEmergedItem,
+  outboxItemLabel,
+} from "./items";
+import { applyOutbox, applyOutboxToMat, itemsForStem, matHoldKey, matServerIds, matSettledKey, type MatStemRow } from "./overlay";
 
 const serverObs: ObservationRow[] = [
   { id: "o-server", type: "leaves_new", value: 2, observed_at: "2026-10-01T00:00:00Z", superseded_by: null, observer_name: "太郎" },
@@ -214,5 +223,87 @@ describe("吸芽の発生（2-1）の重ね合わせ", () => {
     expect(
       matHoldKey(newStemEventItem({ id: "e-b", createdAt: new Date(), stemId: "stem-1", type: "bagged", occurredAt: "2026-10-24T00:00:00Z", payload: {} })),
     ).toBeNull();
+  });
+});
+
+describe("吸芽の採用・芽かき（2-2）", () => {
+  const sucker: MatStemRow = {
+    id: "sucker-1",
+    generation: 2,
+    status: "sucker",
+    started_at: "2026-10-01",
+    initial_leaf_count: 0,
+    parent_stem_id: "stem-1",
+    observations: [],
+  };
+  const parent: MatStemRow = {
+    id: "stem-1",
+    generation: 1,
+    status: "active",
+    started_at: "2026-01-10",
+    initial_leaf_count: 4,
+    parent_stem_id: null,
+    observations: [],
+  };
+  const adopt = (id: string, createdAt: string, stemId = "sucker-1", initialLeafCount = 7) =>
+    newAdoptSuckerItem({ id, createdAt: new Date(createdAt), stemId, occurredAt: createdAt, initialLeafCount });
+  const remove = (id: string, createdAt: string, stemId = "sucker-1") =>
+    newRemoveSuckerItem({ id, createdAt: new Date(createdAt), stemId, occurredAt: createdAt });
+
+  it("outbox 項目: 採用は adopt_sucker（payload は events.payload と同じ {initial_leaf_count}）、芽かきは remove_sucker。stem_id は吸芽", () => {
+    const a = adopt("e-a", "2026-10-25T00:00:00Z");
+    expect(a).toMatchObject({
+      id: "e-a",
+      stem_id: "sucker-1",
+      kind: "event",
+      payload: { method: "adopt_sucker", id: "e-a", type: "sucker_adopted", stem_id: "sucker-1", payload: { initial_leaf_count: 7 } },
+    });
+    expect(outboxItemLabel(a)).toBe("吸芽の採用");
+    const r = remove("e-r", "2026-10-25T00:00:00Z");
+    expect(r).toMatchObject({ stem_id: "sucker-1", payload: { method: "remove_sucker", type: "sucker_removed", payload: {}, note: null } });
+    expect(outboxItemLabel(r)).toBe("芽かき");
+  });
+
+  it("株の詳細: 未送信の採用で見かけの状態が active になり、初期葉数が累計葉数の起点になる", () => {
+    const r = applyOutboxToMat([parent, sucker], [adopt("e-a", "2026-10-25T00:00:00Z")]);
+    expect(r[1]).toMatchObject({ id: "sucker-1", status: "active", initial_leaf_count: 7 });
+    expect(r[0].status).toBe("active");
+    // 元の配列は変えない
+    expect(sucker.status).toBe("sucker");
+    expect(sucker.initial_leaf_count).toBe(0);
+  });
+
+  it("株の詳細: 未送信の芽かきで見かけの状態が removed になる", () => {
+    const r = applyOutboxToMat([parent, sucker], [remove("e-r", "2026-10-25T00:00:00Z")]);
+    expect(r[1].status).toBe("removed");
+  });
+
+  it("株の詳細: サーバーで既に吸芽でない（同期済み）なら重ねない", () => {
+    const synced = { ...sucker, status: "active", initial_leaf_count: 5 };
+    const r = applyOutboxToMat([parent, synced], [adopt("e-a", "2026-10-25T00:00:00Z", "sucker-1", 9), remove("e-r", "2026-10-25T00:00:01Z")]);
+    expect(r[1]).toMatchObject({ status: "active", initial_leaf_count: 5 });
+  });
+
+  it("茎の画面: 未送信の採用・芽かきは履歴に未同期のイベントとして重なり、状態が変わる", () => {
+    const base = { status: "sucker", observations: [], events: [], photos: [] };
+    const a = applyOutbox(base, [adopt("e-a", "2026-10-25T00:00:00Z")], "sucker-1");
+    expect(a.status).toBe("active");
+    expect(a.events[0]).toMatchObject({ id: "e-a", type: "sucker_adopted", pending: true });
+    const h = buildHistory(a.observations, a.events, a.photos);
+    expect(h.find((x) => x.key === "event:e-a")).toMatchObject({ label: "吸芽の採用", valueText: "初期葉数 7 枚" });
+    const r = applyOutbox(base, [remove("e-r", "2026-10-25T00:00:00Z")], "sucker-1");
+    expect(r.status).toBe("removed");
+    expect(canRecordLeaves(r.status)).toBe(false);
+  });
+
+  it("保持の鍵: 採用・芽かきは matSettledKey。serverIds は吸芽でなくなった茎の鍵を含む", () => {
+    expect(matHoldKey(adopt("e-a", "2026-10-25T00:00:00Z"))).toBe(matSettledKey("sucker-1"));
+    expect(matHoldKey(remove("e-r", "2026-10-25T00:00:00Z"))).toBe(matSettledKey("sucker-1"));
+    const before = matServerIds([parent, sucker]);
+    expect(before.has("sucker-1")).toBe(true);
+    expect(before.has(matSettledKey("sucker-1"))).toBe(false);
+    expect(before.has(matSettledKey("stem-1"))).toBe(true);
+    const after = matServerIds([parent, { ...sucker, status: "removed" }]);
+    expect(after.has(matSettledKey("sucker-1"))).toBe(true);
   });
 });

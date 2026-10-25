@@ -52,7 +52,34 @@ export type SuckerEmergedRpcPayload = {
   note: string | null;
 };
 
-export type EventPayload = EventInsertPayload | StemEventRpcPayload | SuckerEmergedRpcPayload;
+// RPC adopt_sucker（0011、2-2）。吸芽を採用（status=active、adopted_at、initial_leaf_count）し sucker_adopted を追記。
+// id（events.id）は端末で採番。id で冪等。outbox 項目の stem_id は吸芽の茎。payload は events.payload と同じ形（重ね合わせ用）
+export type AdoptSuckerRpcPayload = {
+  method: "adopt_sucker";
+  id: string;
+  type: "sucker_adopted";
+  stem_id: string;
+  occurred_at: string;
+  payload: { initial_leaf_count: number };
+};
+
+// RPC remove_sucker（0011、2-2）。吸芽を芽かき（status=removed、ended_at）し sucker_removed を追記。id で冪等
+export type RemoveSuckerRpcPayload = {
+  method: "remove_sucker";
+  id: string;
+  type: "sucker_removed";
+  stem_id: string;
+  occurred_at: string;
+  payload: Record<string, never>;
+  note: string | null;
+};
+
+export type EventPayload =
+  | EventInsertPayload
+  | StemEventRpcPayload
+  | SuckerEmergedRpcPayload
+  | AdoptSuckerRpcPayload
+  | RemoveSuckerRpcPayload;
 
 // 写真。Blob は pendingPhotos（同じ id）に別に持つ。uploaded は Storage への保存が済んだか（済んでいれば再送は DB だけ）
 export type PhotoPayload = {

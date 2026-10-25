@@ -100,6 +100,12 @@ export function eventValueText(type: string, payload: Record<string, unknown> | 
       return stemEventValueText(type, p);
     case "sucker_emerged":
       return suckerEmergedValueText(p);
+    case "sucker_adopted":
+      return typeof p.initial_leaf_count === "number" ? `初期葉数 ${p.initial_leaf_count} 枚` : "";
+    case "sucker_removed":
+      return "";
+    case "sucker_transplanted":
+      return "新しい株に植え替え";
     default:
       return Object.entries(p)
         .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)

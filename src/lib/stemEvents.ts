@@ -5,7 +5,11 @@
 //   DB が正本で、ここは UI の出し分け（ボタン）と Server Action の事前判定に使う
 // - 出蕾の累計葉数は Server Action が leaves.ts の cumulativeLeaves で計算して payload に入れる
 // - 入力の解釈（parse*）はここに置き、Server Action は FormData を文字列にして渡すだけにする
+// - 吸芽の採用・芽かき・株分け（2-2）の状態の前提もここに置く（0011_sucker_actions.sql と同じ表）
 import { isValidDateString } from "./mats/placement";
+import { parseInitialLeafCount } from "./stems/leaf-count";
+import { canAddActiveStem, MAX_ACTIVE_STEMS } from "./stems/registration";
+import { stemStatusLabel } from "./stems/status";
 
 // この画面（茎の記録入力）から記録できるイベント
 export const STEM_EVENT_TYPES = ["bud_emerged", "hands_counted", "bagged", "debudded", "harvested", "damage"] as const;
@@ -82,8 +86,9 @@ export function allowedEventTypes(status: string): StemEventType[] {
   return STEM_EVENT_TYPES.filter((t) => canRecordEvent(status, t));
 }
 
-// イベントを記録した後の状態。記録できない組み合わせは null
+// イベントを記録した後の状態。記録できない組み合わせは null。吸芽の採用・芽かき・株分け（2-2）も扱う
 export function nextStatus(status: string, type: string, payload: Record<string, unknown> = {}): string | null {
+  if (isSuckerActionType(type)) return suckerActionNextStatus(status, type);
   if (!canRecordEvent(status, type)) return null;
   switch (type) {
     case "bud_emerged":
@@ -95,6 +100,69 @@ export function nextStatus(status: string, type: string, payload: Record<string,
     default:
       return status; // hands_counted / bagged / debudded
   }
+}
+
+// --- 吸芽の採用・芽かき・株分け（2-2） ------------------------------------------------
+//
+// 3 つとも吸芽（status=sucker）の茎にだけできる。DB の RPC（supabase/migrations/0011_sucker_actions.sql の
+// adopt_sucker / remove_sucker / transplant_sucker。前提の確認は lock_sucker_stem）と同じ表。片方を変えたら両方を変える。
+// DB が正本で、ここは株の詳細のボタンの出し分けと、オフラインで積んだ分の見かけの状態（overlay）に使う。
+// 採用の「栽培中は最大 3 本」の正本は 0001 のトリガー stems_max_active（canAdoptSucker は事前の判定）。
+
+export const SUCKER_ACTION_TYPES = ["sucker_adopted", "sucker_removed", "sucker_transplanted"] as const;
+export type SuckerActionType = (typeof SUCKER_ACTION_TYPES)[number];
+
+export const SUCKER_ACTION_LABELS: Record<SuckerActionType, string> = {
+  sucker_adopted: "採用",
+  sucker_removed: "芽かき",
+  sucker_transplanted: "株分け",
+};
+
+const SUCKER_ACTION_NEXT_STATUS: Record<SuckerActionType, string> = {
+  sucker_adopted: "active",
+  sucker_removed: "removed",
+  sucker_transplanted: "transplanted",
+};
+
+export function isSuckerActionType(s: string): s is SuckerActionType {
+  return (SUCKER_ACTION_TYPES as readonly string[]).includes(s);
+}
+
+export function canDoSuckerAction(status: string, action: string): boolean {
+  return isSuckerActionType(action) && status === "sucker";
+}
+
+// 操作した後の茎の状態。できない組み合わせは null
+export function suckerActionNextStatus(status: string, action: string): string | null {
+  if (!isSuckerActionType(action) || !canDoSuckerAction(status, action)) return null;
+  return SUCKER_ACTION_NEXT_STATUS[action];
+}
+
+// できない理由（RPC の lock_sucker_stem の例外と同じ文言）。できるなら null
+export function suckerActionError(status: string, action: SuckerActionType): string | null {
+  if (canDoSuckerAction(status, action)) return null;
+  return `${SUCKER_ACTION_LABELS[action]}は吸芽の茎にだけできます（この茎は${stemStatusLabel(status)}）`;
+}
+
+// 採用で栽培中が 3 本を超えるときの理由（RPC adopt_sucker がトリガーの例外を言い換える文言と同じ）
+export const ADOPT_MAX_ACTIVE_MESSAGE = `この株には栽培中の茎が ${MAX_ACTIVE_STEMS} 本あるため採用できません。先に他の吸芽を芽かきするか株分けしてください`;
+
+export type SuckerActionCheck = { ok: true } | { ok: false; reason: string };
+
+// 採用できるか（吸芽であること＋株の栽培中が 3 本未満であること）。matStems は同じ株の茎（見かけの状態）
+export function canAdoptSucker(stem: { status: string }, matStems: readonly { status: string }[]): SuckerActionCheck {
+  const err = suckerActionError(stem.status, "sucker_adopted");
+  if (err) return { ok: false, reason: err };
+  if (!canAddActiveStem(matStems).ok) return { ok: false, reason: ADOPT_MAX_ACTIVE_MESSAGE };
+  return { ok: true };
+}
+
+// 採用・株分けの初期葉数（必須。0 以上の整数）
+export function parseRequiredInitialLeafCount(input: string | null | undefined): EventParse<number> {
+  const parsed = parseInitialLeafCount(input);
+  if (!parsed.ok) return parsed;
+  if (parsed.value === null) return { ok: false, error: "初期葉数を入力してください" };
+  return { ok: true, value: parsed.value };
 }
 
 // --- 日付 ------------------------------------------------------------------------

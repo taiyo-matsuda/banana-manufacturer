@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADOPT_MAX_ACTIVE_MESSAGE,
   allowedEventTypes,
+  canAdoptSucker,
+  canDoSuckerAction,
+  parseRequiredInitialLeafCount,
+  SUCKER_ACTION_TYPES,
+  suckerActionError,
+  suckerActionNextStatus,
   canRecordEvent,
   DAMAGE_KINDS,
   DAMAGE_SEVERITIES,
@@ -187,5 +194,59 @@ describe("parseEventInput", () => {
     expect(parseEventInput({ type: "bagged", date: "2026/10/22" })).toEqual({ ok: false, error: "日付を YYYY-MM-DD で入力してください" });
     expect(parseEventInput({ type: "bagged", date: "" }).ok).toBe(false);
     expect(parseEventInput({ type: "leaves_removed", date: "2026-10-22" })).toEqual({ ok: false, error: "記録するイベントを選んでください" });
+  });
+});
+
+describe("吸芽の採用・芽かき・株分け（2-2。0011_sucker_actions.sql と同じ表）", () => {
+  it("3 つとも吸芽の茎にだけできる", () => {
+    for (const action of SUCKER_ACTION_TYPES) {
+      for (const status of ALL_STATUSES) {
+        expect(canDoSuckerAction(status, action)).toBe(status === "sucker");
+      }
+    }
+    expect(canDoSuckerAction("sucker", "bud_emerged")).toBe(false);
+  });
+
+  it("操作後の状態: 採用 → active、芽かき → removed、株分け → transplanted。吸芽でなければ null", () => {
+    expect(suckerActionNextStatus("sucker", "sucker_adopted")).toBe("active");
+    expect(suckerActionNextStatus("sucker", "sucker_removed")).toBe("removed");
+    expect(suckerActionNextStatus("sucker", "sucker_transplanted")).toBe("transplanted");
+    expect(suckerActionNextStatus("active", "sucker_adopted")).toBeNull();
+    expect(suckerActionNextStatus("removed", "sucker_removed")).toBeNull();
+    // nextStatus（overlay が使う）も同じ表で答える
+    expect(nextStatus("sucker", "sucker_adopted")).toBe("active");
+    expect(nextStatus("sucker", "sucker_removed")).toBe("removed");
+    expect(nextStatus("transplanted", "sucker_adopted")).toBeNull();
+    // 吸芽には茎のイベント（出蕾など）は記録できないまま
+    expect(nextStatus("sucker", "bud_emerged")).toBeNull();
+  });
+
+  it("できない理由は RPC（lock_sucker_stem）と同じ文言", () => {
+    expect(suckerActionError("sucker", "sucker_adopted")).toBeNull();
+    expect(suckerActionError("removed", "sucker_adopted")).toBe("採用は吸芽の茎にだけできます（この茎は芽かき）");
+    expect(suckerActionError("active", "sucker_removed")).toBe("芽かきは吸芽の茎にだけできます（この茎は栽培中）");
+    expect(suckerActionError("transplanted", "sucker_transplanted")).toBe("株分けは吸芽の茎にだけできます（この茎は株分け）");
+  });
+
+  it("採用: 栽培中（active / flowered）が 3 本なら採用できない。吸芽・終了した茎は数えない", () => {
+    const sucker = { status: "sucker" };
+    expect(canAdoptSucker(sucker, [{ status: "active" }, { status: "flowered" }, sucker])).toEqual({ ok: true });
+    expect(
+      canAdoptSucker(sucker, [{ status: "active" }, { status: "flowered" }, { status: "harvested" }, { status: "removed" }, { status: "sucker" }, sucker]),
+    ).toEqual({ ok: true });
+    expect(canAdoptSucker(sucker, [{ status: "active" }, { status: "active" }, { status: "flowered" }, sucker])).toEqual({
+      ok: false,
+      reason: ADOPT_MAX_ACTIVE_MESSAGE,
+    });
+    expect(ADOPT_MAX_ACTIVE_MESSAGE).toContain("3 本");
+    expect(canAdoptSucker({ status: "removed" }, [])).toEqual({ ok: false, reason: "採用は吸芽の茎にだけできます（この茎は芽かき）" });
+  });
+
+  it("初期葉数は必須・0 以上の整数", () => {
+    expect(parseRequiredInitialLeafCount("8")).toEqual({ ok: true, value: 8 });
+    expect(parseRequiredInitialLeafCount(" 0 ")).toEqual({ ok: true, value: 0 });
+    expect(parseRequiredInitialLeafCount("")).toEqual({ ok: false, error: "初期葉数を入力してください" });
+    expect(parseRequiredInitialLeafCount("-1")).toMatchObject({ ok: false });
+    expect(parseRequiredInitialLeafCount("2.5")).toMatchObject({ ok: false });
   });
 });

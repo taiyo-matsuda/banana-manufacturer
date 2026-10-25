@@ -12,14 +12,14 @@ import { FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE, firstStemPlantedAtDiffers } from
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
 import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
 import type { MatStemRow } from "@/lib/offline/overlay";
-import { sortStemsByGeneration } from "@/lib/stems/status";
+import { generationLabel, sortStemsByGeneration } from "@/lib/stems/status";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { MatStems } from "./mat-stems";
 import { StemForm } from "./stem-form";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
-// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。予測収穫日（ステップ 3）、吸芽の採用/株分け（2-2）は後のタスクで追加する。
+// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。吸芽の採用・芽かき・株分け（2-2）は吸芽の行のボタン（sucker-actions.tsx）。株分けで作った株は由来（元の株と茎の世代）へリンクする。予測収穫日（ステップ 3）は後のタスクで追加する。
 // 株の編集（/mats/[matId]/edit、UX-2）への導線。株の植え付け日と最初の茎の植え付け日がずれていたら注意を出す（データは直さない）。
 // 開いた株は端末に残し、ホームの「最近開いた株」から 1 タップで戻れる（UX-1）。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
@@ -54,7 +54,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   // PERF-1: ユーザー・株・茎（葉の観測を埋め込み）は matId だけで引けるので、1 回の Promise.all で並べて取る
   // （Supabase への直列の往復は 1 回）。
   // - 株: RLS により他組織の株は見えない（0 件 → notFound）。由来（株分けの元の茎が属する株）は
-  //   mats.origin_stem_id の FK（mats_origin_stem_fk）で埋め込む（1-4 時点では origin_stem_id は null のみ）
+  //   mats.origin_stem_id の FK（mats_origin_stem_fk）で埋め込む（株分け 2-2 で作った株だけが持つ）
   // - 茎: 累計葉数 = 初期葉数 + Σ leaves_new（現在の値 = superseded_by が null の観測だけ）。
   //   埋め込んだ observations を type / superseded_by で絞る（茎の行は絞らない）
   const [currentUser, { data: mat }, { data: stemRows, error: stemsError }] = await Promise.all([
@@ -62,7 +62,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     supabase
       .from("mats")
       .select(
-        "id, code, planted_at, origin_type, origin_stem_id, status, fields ( id, name, code ), cultivars ( name ), origin_stem:stems!mats_origin_stem_fk ( mat:mats!stems_mat_id_fkey ( id, code ) )",
+        "id, code, planted_at, origin_type, origin_stem_id, status, fields ( id, name, code ), cultivars ( name ), origin_stem:stems!mats_origin_stem_fk ( generation, mat:mats!stems_mat_id_fkey ( id, code ) )",
       )
       .eq("id", matId)
       .maybeSingle(),
@@ -79,9 +79,10 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
 
   const field = mat.fields as unknown as { id: string; name: string; code: string } | null;
   const cultivar = mat.cultivars as unknown as { name: string } | null;
-  const originMat = mat.origin_stem_id
-    ? ((mat.origin_stem as unknown as { mat: { id: string; code: string } | null } | null)?.mat ?? null)
+  const originStem = mat.origin_stem_id
+    ? (mat.origin_stem as unknown as { generation: number; mat: { id: string; code: string } | null } | null)
     : null;
+  const originMat = originStem?.mat ?? null;
 
   const sortedStems = sortStemsByGeneration(stemRows ?? []);
 
@@ -138,8 +139,12 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
             <dt className="text-muted-foreground">由来</dt>
             <dd data-testid="mat-origin">
               {originMat ? (
-                <Link href={`/mats/${originMat.id}`} className="text-primary underline underline-offset-4">
-                  株 {originMat.code} から株分け
+                <Link
+                  href={`/mats/${originMat.id}`}
+                  className="text-primary underline underline-offset-4"
+                  data-testid="mat-origin-link"
+                >
+                  株 {originMat.code}（{generationLabel(originStem!.generation)}）から株分け
                 </Link>
               ) : (
                 "この位置に植え付け"

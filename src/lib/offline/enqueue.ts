@@ -3,7 +3,15 @@
 // 画面からの記録（ブラウザ側）: 端末で id を採番 → Dexie の outbox（写真は pendingPhotos も）に書く → 同期を起動する。
 // オンラインでも同じ経路（offline-sync.md 1 章）。書き込みは Dexie への put だけなので圏外でも成功する。
 import { getDb } from "../db";
-import { newLeavesRemovedItem, newObservationItem, newPhotoItem, newStemEventItem, newSuckerEmergedItem } from "./items";
+import {
+  newAdoptSuckerItem,
+  newLeavesRemovedItem,
+  newObservationItem,
+  newPhotoItem,
+  newRemoveSuckerItem,
+  newStemEventItem,
+  newSuckerEmergedItem,
+} from "./items";
 import { requestSync } from "./sync-client";
 import type { ObservationPayload, OutboxItem, StemEventRpcPayload } from "./types";
 
@@ -69,6 +77,20 @@ export async function enqueueSuckerEmerged(args: {
   });
   await enqueue([item]);
   return { item, suckerStemId };
+}
+
+// 吸芽の採用（2-2）。イベントの id を端末で採番する（RPC adopt_sucker が id で冪等）
+export async function enqueueAdoptSucker(args: { stemId: string; occurredAt: string; initialLeafCount: number }) {
+  const item = newAdoptSuckerItem({ id: newId(), createdAt: new Date(), ...args });
+  await enqueue([item]);
+  return item;
+}
+
+// 吸芽の芽かき（2-2）。イベントの id を端末で採番する（RPC remove_sucker が id で冪等）
+export async function enqueueRemoveSucker(args: { stemId: string; occurredAt: string }) {
+  const item = newRemoveSuckerItem({ id: newId(), createdAt: new Date(), ...args });
+  await enqueue([item]);
+  return item;
 }
 
 export async function enqueuePhoto(args: {

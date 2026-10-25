@@ -98,6 +98,35 @@ export function newSuckerEmergedItem(
   return { ...base(args, args.parentStemId), kind: "event", payload };
 }
 
+// 吸芽の採用（2-2）: RPC adopt_sucker。stem_id は吸芽の茎
+export function newAdoptSuckerItem(
+  args: Base & { stemId: string; occurredAt: string; initialLeafCount: number },
+): OutboxItem {
+  const payload: EventPayload = {
+    method: "adopt_sucker",
+    id: args.id,
+    type: "sucker_adopted",
+    stem_id: args.stemId,
+    occurred_at: args.occurredAt,
+    payload: { initial_leaf_count: args.initialLeafCount },
+  };
+  return { ...base(args, args.stemId), kind: "event", payload };
+}
+
+// 吸芽の芽かき（2-2）: RPC remove_sucker。stem_id は吸芽の茎
+export function newRemoveSuckerItem(args: Base & { stemId: string; occurredAt: string }): OutboxItem {
+  const payload: EventPayload = {
+    method: "remove_sucker",
+    id: args.id,
+    type: "sucker_removed",
+    stem_id: args.stemId,
+    occurred_at: args.occurredAt,
+    payload: {},
+    note: null,
+  };
+  return { ...base(args, args.stemId), kind: "event", payload };
+}
+
 export function newPhotoItem(
   args: Base & {
     stemId: string;
@@ -142,6 +171,8 @@ export function outboxItemLabel(item: OutboxItem): string {
           harvested: "収穫",
           damage: "被害",
           sucker_emerged: "吸芽",
+          sucker_adopted: "吸芽の採用",
+          sucker_removed: "芽かき",
         } as Record<string, string>
       )[item.payload.type] ?? item.payload.type;
     case "photo":

@@ -67,6 +67,28 @@ export function createSender(db: AppDb, supabase: SupabaseBrowser = createClient
           if (error) fail(error, status);
           return;
         }
+        if (p.method === "adopt_sucker") {
+          // 2-2: 吸芽の採用（0011: p_event_id で冪等。栽培中 3 本の違反は日本語の例外 → 要確認）
+          const { error, status } = await supabase.rpc("adopt_sucker", {
+            p_event_id: p.id,
+            p_stem_id: p.stem_id,
+            p_occurred_at: p.occurred_at,
+            p_initial_leaf_count: p.payload.initial_leaf_count,
+          });
+          if (error) fail(error, status);
+          return;
+        }
+        if (p.method === "remove_sucker") {
+          // 2-2: 吸芽の芽かき（0011: p_event_id で冪等）
+          const { error, status } = await supabase.rpc("remove_sucker", {
+            p_event_id: p.id,
+            p_stem_id: p.stem_id,
+            p_occurred_at: p.occurred_at,
+            p_note: p.note,
+          });
+          if (error) fail(error, status);
+          return;
+        }
         const { error, status } = await supabase.rpc("record_stem_event", {
           p_id: p.id,
           p_stem_id: p.stem_id,

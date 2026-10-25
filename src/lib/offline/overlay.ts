@@ -142,8 +142,15 @@ export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly O
       });
     } else if (item.kind === "event") {
       const p = item.payload;
-      if (p.method === "record_stem_event") {
+      if (p.method === "record_stem_event" || p.method === "remove_sucker") {
         stem.status = nextStatus(stem.status, p.type, p.payload) ?? stem.status;
+      } else if (p.method === "adopt_sucker") {
+        // 2-2: 採用は状態（active）と初期葉数（累計葉数の起点）を重ねる。既に吸芽でなければ（同期済み）何もしない
+        const next = nextStatus(stem.status, p.type, p.payload);
+        if (next !== null) {
+          stem.status = next;
+          stem.initial_leaf_count = p.payload.initial_leaf_count;
+        }
       } else if (p.method === "record_sucker_emerged") {
         if (byId.has(p.sucker_stem_id)) continue;
         const sucker: MatStemRow = {
@@ -165,9 +172,30 @@ export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly O
 }
 
 // 株の詳細で、送信済みで outbox から消えたがサーバーの props にまだ無い項目を保持するときの鍵。
-// 観測は観測の id、吸芽は吸芽の茎の id（株の詳細が持つのは茎と観測なので）。それ以外は保持しない（null）
+// 観測は観測の id、吸芽は吸芽の茎の id（株の詳細が持つのは茎と観測なので）。
+// 吸芽の採用・芽かき（2-2）は matSettledKey（その茎がサーバーで吸芽でなくなったら serverIds に入る鍵）。
+// それ以外は保持しない（null）
 export function matHoldKey(item: OutboxItem): string | null {
   if (item.kind === "observation") return item.payload.id;
   if (item.kind === "event" && item.payload.method === "record_sucker_emerged") return item.payload.sucker_stem_id;
+  if (item.kind === "event" && (item.payload.method === "adopt_sucker" || item.payload.method === "remove_sucker")) {
+    return matSettledKey(item.payload.stem_id);
+  }
   return null;
+}
+
+// 吸芽の行き先が決まった（サーバーの状態が sucker でなくなった）茎の鍵。株の詳細は serverIds にこれも入れる
+export function matSettledKey(stemId: string): string {
+  return `${stemId}:settled`;
+}
+
+// 株の詳細の serverIds（matHoldKey と対になる）: 茎の id、観測の id、吸芽でない茎の matSettledKey
+export function matServerIds(stems: readonly MatStemRow[]): Set<string> {
+  const ids = new Set<string>();
+  for (const s of stems) {
+    ids.add(s.id);
+    if (s.status !== "sucker") ids.add(matSettledKey(s.id));
+    for (const o of s.observations) ids.add(o.id);
+  }
+  return ids;
 }

@@ -1,16 +1,9 @@
 "use client";
 
-import {
-  LngLatBounds,
-  Map as MapLibreMap,
-  type MapMouseEvent,
-  Marker,
-  NavigationControl,
-  setWorkerUrl,
-} from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import { LngLatBounds, type Map as MapLibreMap, type MapMouseEvent, Marker } from "maplibre-gl";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { addMatMarkers, createFieldMap, makeGuideMarker, makeTapTarget, setLatLngAttrs } from "@/components/app/field-map-core";
 import { FormField } from "@/components/app/form-field";
 import { NumberField } from "@/components/app/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -36,17 +29,7 @@ export type FieldMapProps = {
   defaultCultivarId: string;
 };
 
-// 地理院タイル 空中写真（最大ズーム 18。それ以上は拡大表示）
-const GSI_PHOTO_TILES = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg";
-const GSI_ATTRIBUTION =
-  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル（国土地理院）</a>';
-const INITIAL_ZOOM = 18;
-const MAX_ZOOM = 22;
-
-// MapLibre の Web Worker。バンドラ経由では既定の場所（import.meta.url の隣）に無いので、
-// scripts/copy-maplibre-worker.mjs が public/ に置いたものを使う
-const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
-if (typeof window !== "undefined") setWorkerUrl(MAPLIBRE_WORKER_URL);
+// 地図・株の点・目印は株分けの位置の指定（2-2）と共通（src/components/app/field-map-core.ts）
 
 // 格子で配置: pick-origin → pick-direction → form → preview。1株追加: pick-single → single-form
 type Mode =
@@ -75,33 +58,6 @@ function todayLocal(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function setLatLngAttrs(el: HTMLElement, p: LatLng) {
-  el.dataset.lat = String(p.lat);
-  el.dataset.lng = String(p.lng);
-}
-
-function makeDot(className: string): HTMLDivElement {
-  const el = document.createElement("div");
-  el.className = className;
-  return el;
-}
-
-// タップできる点（株・プレビュー）: 見た目の点は小さいまま、透明な 44px の当たり判定で包む（UX-1 完了条件 6）。
-// data-* やイベントは外側（当たり判定）に付ける。MapLibre の Marker は要素の中心を座標に合わせるので位置は変わらない
-function makeTapTarget(dotClassName: string, extraClassName = ""): HTMLDivElement {
-  const el = makeDot(`flex size-11 items-center justify-center ${extraClassName}`);
-  el.appendChild(makeDot(`pointer-events-none ${dotClassName}`));
-  return el;
-}
-
-// 配置モードで選んだ 1 点目・2 点目の目印
-function makeGuideMarker(map: MapLibreMap, p: LatLng, color: string, kind: string): Marker {
-  const el = makeDot(`h-3 w-3 rounded-full border-2 border-white shadow ${color}`);
-  el.dataset.testid = `guide-marker-${kind}`;
-  setLatLngAttrs(el, p);
-  return new Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
 }
 
 // プレビュー点のドラッグ（Pointer Events で自前実装。マウスとタッチの両方で同じ動き）。
@@ -200,36 +156,11 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     const container = containerRef.current;
     if (!container) return;
 
-    const map = new MapLibreMap({
-      container,
-      style: {
-        version: 8,
-        sources: {
-          gsi: {
-            type: "raster",
-            tiles: [GSI_PHOTO_TILES],
-            tileSize: 256,
-            maxzoom: 18,
-            attribution: GSI_ATTRIBUTION,
-          },
-        },
-        layers: [{ id: "gsi", type: "raster", source: "gsi" }],
-      },
-      center: [field.centerLng, field.centerLat],
-      zoom: INITIAL_ZOOM,
-      maxZoom: MAX_ZOOM,
-      // 出典は常時表示（compact にしない）
-      attributionControl: { compact: false },
+    const map = createFieldMap(container, {
+      center: { lat: field.centerLat, lng: field.centerLng },
+      mats: initialMats,
+      onReady: () => setMapReady(true),
     });
-    map.addControl(new NavigationControl({ showCompass: false }), "top-right");
-    map.on("style.load", () => setMapReady(true));
-
-    // 既に株があれば、株全体が見えて 1 株ずつタップできるズームにする（初期ズーム 18 では 3m 間隔の株がほぼ重なる）
-    if (initialMats.length > 0) {
-      const bounds = new LngLatBounds();
-      for (const m of initialMats) bounds.extend([m.lng, m.lat]);
-      map.fitBounds(bounds, { padding: 60, maxZoom: 21, duration: 0 });
-    }
 
     map.on("click", (e: MapMouseEvent) => {
       const p = { lat: e.lngLat.lat, lng: e.lngLat.lng };
@@ -286,22 +217,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     const map = mapRef.current;
     if (!map) return;
     for (const m of matMarkersRef.current) m.remove();
-    matMarkersRef.current = mats.map((mat) => {
-      const el = makeTapTarget(
-        "h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 shadow",
-        "cursor-pointer",
-      );
-      el.dataset.testid = "mat-marker";
-      // mat.id をそのまま dataset / setAttribute に渡すと React Compiler の lint（react-hooks/immutability）が
-      // 「mats を変更するかもしれない」と誤判定するので、文字列に写してから付ける
-      el.setAttribute("data-mat-id", `${mat.id}`);
-      el.dataset.code = mat.code;
-      el.title = mat.code;
-      el.role = "link";
-      el.ariaLabel = `株 ${mat.code}`;
-      setLatLngAttrs(el, mat);
-      return new Marker({ element: el }).setLngLat([mat.lng, mat.lat]).addTo(map);
-    });
+    matMarkersRef.current = addMatMarkers(map, mats);
   }, [mats, mapReady]);
 
   // プレビュー: 各点をドラッグできるマーカーで表示し、格子全体が見えるようにズームする

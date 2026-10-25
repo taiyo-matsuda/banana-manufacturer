@@ -1,9 +1,9 @@
 # 設計: オフライン保存と同期
 
-最終更新: 2026-10-23　要件: `../01_requirements.md` 9章
+最終更新: 2026-10-25　要件: `../01_requirements.md` 9章
 
 実装の状況（1-9）: **書き込みの経路**（観測・イベント・写真）を実装済み。**読み取りのローカルキャッシュ（5 章）は未実装**（ステップ 2 以降。`../03_tasks.md` のメモ）。
-圏外で記録できるのは、オンラインのうちに開いておいた茎の画面と株の詳細（吸芽の発生、2-1）だけ。株・茎の作成（配置、採用、株分け）はオンライン前提のまま。例外として、吸芽の発生（2-1）は吸芽の茎（status=sucker）を作るがオフラインで記録できる（茎の id を端末で採番し、RPC が id で冪等）。
+圏外で記録できるのは、オンラインのうちに開いておいた茎の画面と株の詳細（吸芽の発生、2-1）だけ。株の作成（配置、株分け）はオンライン前提のまま。例外として、吸芽の発生（2-1）は吸芽の茎（status=sucker）を作るがオフラインで記録できる（茎の id を端末で採番し、RPC が id で冪等）。吸芽の採用・芽かき（2-2）も既存の吸芽の状態を変えるだけなので、outbox 経由でオフラインで記録できる。
 アプリの殻（HTML/JS）のオフライン配信は 1-10 の Service Worker。
 
 ---
@@ -12,7 +12,7 @@
 
 - 圃場では圏外になりうる。**記録はまず端末（IndexedDB）に書き、その後サーバーに送る**。オンラインでも同じ経路を通す（経路を2つ持たない）。
 - 観測・イベント・写真は追記のみなので、同期で競合が起きない。**id は端末側で UUID を生成**し、サーバーでは `insert ... on conflict (id) do nothing`（supabase-js の `upsert(..., { ignoreDuplicates: true })`）。再送しても二重にならない。
-- 株・茎の作成（配置、採用、株分け）はオンライン時のみ可能とする（MVP）。例外: 吸芽の発生（2-1）で作る吸芽の茎は、イベントと同じく outbox 経由でオフラインでも作れる（吸芽の茎の id とイベントの id を端末で採番。RPC `record_sucker_emerged` が 1 トランザクションで作り、イベントの id で冪等）。読み取り用の端末キャッシュはステップ 2 以降。
+- 株の作成（配置、株分け）はオンライン時のみ可能とする（MVP。株分けの画面はオフラインでは確定を無効にし、理由を表示する）。吸芽の採用・芽かき（2-2）は outbox 経由でオフラインでも記録できる（RPC `adopt_sucker` / `remove_sucker`、イベントの id で冪等）。例外: 吸芽の発生（2-1）で作る吸芽の茎は、イベントと同じく outbox 経由でオフラインでも作れる（吸芽の茎の id とイベントの id を端末で採番。RPC `record_sucker_emerged` が 1 トランザクションで作り、イベントの id で冪等）。読み取り用の端末キャッシュはステップ 2 以降。
 
 ## 2. 端末側のデータ（Dexie）
 
@@ -46,6 +46,8 @@ DB 名 `banana-field-notes`（`src/lib/db/index.ts`）。インスタンスは�
 | event（`method: 'insert'`） | 枯葉処理 `{id, type: 'leaves_removed', target_type: 'stem', target_id, occurred_at, recorded_by, payload: {count}}` | `events` に upsert（ignoreDuplicates） |
 | event（`method: 'record_stem_event'`） | 出蕾・段数・袋掛け・摘蕾・収穫・被害 `{id, stem_id, type, occurred_at, payload, note}` | RPC `record_stem_event(p_id, …)`（0009。同じ id の行があれば何もしない）。茎の状態更新も同じ RPC で行い、outbox では 1 件 |
 | event（`method: 'record_sucker_emerged'`） | 吸芽の発生（2-1）`{id, type: 'sucker_emerged', sucker_stem_id, parent_stem_id, occurred_at, payload: {sucker_stem_id, parent_cumulative_leaves, earliest_at, direction, sucker_type}, note}`。outbox の `stem_id` は親茎 | RPC `record_sucker_emerged(p_event_id, p_sucker_stem_id, p_parent_stem_id, …)`（0010。同じイベント id の行があれば何もしない）。吸芽の茎（status=sucker）と親茎のイベントを 1 トランザクションで作る。株の詳細は未送信の吸芽を「未同期」の茎として重ねる |
+| event（`method: 'adopt_sucker'`） | 吸芽の採用（2-2）`{id, type: 'sucker_adopted', stem_id, occurred_at, payload: {initial_leaf_count}}`。outbox の `stem_id` は吸芽 | RPC `adopt_sucker(p_event_id, p_stem_id, p_occurred_at, p_initial_leaf_count)`（0011。同じイベント id の行があれば何もしない）。栽培中 3 本の違反（トリガー）は日本語の例外 → 要確認。株の詳細は未送信の採用を見かけの状態（栽培中・初期葉数）として重ねる |
+| event（`method: 'remove_sucker'`） | 吸芽の芽かき（2-2）`{id, type: 'sucker_removed', stem_id, occurred_at, payload: {}, note}` | RPC `remove_sucker(p_event_id, p_stem_id, p_occurred_at, p_note)`（0011。冪等）。株の詳細は見かけの状態を「芽かき」にする |
 | photo | `{id, target_type: 'stem', target_id, storage_path, content_type, taken_at, taken_by, lat, lng, kind, uploaded}` | 4 章の写真の流れ |
 
 `observed_by` / `recorded_by` / `taken_by` はログインユーザーの id（サーバーが画面の props で渡す）。`organization_id` は渡さない（INSERT トリガーが親からコピーする）。
