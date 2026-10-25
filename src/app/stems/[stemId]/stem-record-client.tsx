@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { budLeafSnapshot } from "@/lib/corrections";
 import { getDb } from "@/lib/db";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { applyOutbox } from "@/lib/offline/overlay";
@@ -51,7 +52,8 @@ export function StemRecordClient({ stem }: { stem: StemView }) {
       byCheck,
       checkWarning: leafCheckWarning(cumulative, byCheck),
       canRecord: canRecordLeaves(overlay.status),
-      latestObservedOn: latestDateJst(overlay.observations.map((o) => o.observed_at)),
+      latestObservedOn: latestDateJst(overlay.observations.filter((o) => o.superseded_by === null).map((o) => o.observed_at)),
+      budSnapshot: budLeafSnapshot(stem.initialLeafCount, overlay.observations, overlay.events),
       history: buildHistory(overlay.observations, overlay.events, overlay.photos),
       observations: overlay.observations,
       events: overlay.events,
@@ -99,7 +101,7 @@ export function StemRecordClient({ stem }: { stem: StemView }) {
           </CardAction>
         </CardHeader>
         <CardContent>
-          <StemHistory entries={view.history} />
+          <StemHistory entries={view.history} correctable />
         </CardContent>
       </Card>
     </article>

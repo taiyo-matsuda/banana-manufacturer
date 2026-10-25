@@ -2,7 +2,7 @@
 //
 // - 記録できるのは栽培中（active / flowered）の茎だけ。それ以外は履歴へのリンクだけを出す
 // - leaves_new / leaves_current は observations、leaves_removed（枯葉処理）は events に追記する
-// - 観測・イベントは追記のみ。編集・削除はしない（訂正はステップ 2 で superseded_by による新レコードの追加）
+// - 観測・イベントは追記のみ。編集・削除はしない（訂正は 2-6: superseded_by による新レコードの追加。src/lib/corrections.ts）
 // - 履歴は観測・イベント・写真を 1 つの時系列に混ぜ、新しい順に並べる
 import type { LeafObservation, LeavesRemovedEvent } from "../leaves";
 import { fertilizedValueText } from "../fertilize";
@@ -157,6 +157,7 @@ export type HistoryPhoto = { id: string; url: string | null; kind: string };
 
 export type HistoryEntry = {
   key: string; // "observation:<id>" / "event:<id>" / "photo:<id>"
+  id: string; // 観測・イベント・写真の id
   kind: "observation" | "event" | "photo";
   type: string;
   label: string;
@@ -164,45 +165,85 @@ export type HistoryEntry = {
   at: Date;
   by: string | null;
   superseded: boolean; // 訂正済み（打ち消し表示）
+  correctedTo: string | null; // 訂正済みの行の「→ 新しい値」（新しい行が見つからなければ null）
+  isCorrection: boolean; // 訂正で追加された行（「訂正」の印）
   pending: boolean; // 未同期（「未同期」の印）
+  value?: number; // 観測の値（訂正ダイアログの初期値）
+  payload?: Record<string, unknown> | null; // イベントの payload（訂正ダイアログの初期値）
   note?: string; // イベントのメモ（events.note）。なければ省く
   photo?: HistoryPhoto; // kind === "photo" のときだけ
 };
 
 const KIND_ORDER: Record<HistoryEntry["kind"], number> = { observation: 0, event: 1, photo: 2 };
 
-// 観測・イベント・写真を 1 つの時系列にして新しい順（同時刻は観測 → イベント → 写真、さらに同じなら id 順）に並べる
+// 日本時間の日付（YYYY-MM-DD）
+const jstDateFormat = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" });
+
+// 訂正済みの行に添える「新しい値」。日付を変えた訂正なら新しい日付も添える。値のないイベント（袋掛けなど）は日付だけ
+export function correctedText(newValueText: string, newAt: string, oldAt: string): string {
+  const newDate = jstDateFormat.format(new Date(newAt));
+  const dateChanged = newDate !== jstDateFormat.format(new Date(oldAt));
+  if (newValueText === "") return newDate;
+  return dateChanged ? `${newValueText}（${newDate}）` : newValueText;
+}
+
+// 観測・イベント・写真を 1 つの時系列にして新しい順（同時刻は観測 → イベント → 写真、訂正で追加された行が上、さらに同じなら id 順）に並べる。
+// 訂正（2-6）: 訂正済みの行（superseded_by あり）には新しい行の値（correctedTo）を、
+// 訂正で追加された行（他の行の superseded_by が指す行）には isCorrection を付ける
 export function buildHistory(
   observations: readonly ObservationRow[],
   events: readonly EventRow[],
   photos: readonly PhotoRow[] = [],
 ): HistoryEntry[] {
+  const obsById = new Map(observations.map((o) => [o.id, o]));
+  const evById = new Map(events.map((e) => [e.id, e]));
+  const correctionIds = new Set<string>([
+    ...observations.flatMap((o) => (o.superseded_by ? [o.superseded_by] : [])),
+    ...events.flatMap((e) => (e.superseded_by ? [e.superseded_by] : [])),
+  ]);
   const entries: HistoryEntry[] = [
-    ...observations.map<HistoryEntry>((o) => ({
-      key: `observation:${o.id}`,
-      kind: "observation",
-      type: o.type,
-      label: observationLabel(o.type),
-      valueText: observationValueText(o.type, Number(o.value)),
-      at: new Date(o.observed_at),
-      by: o.observer_name ?? null,
-      superseded: o.superseded_by !== null,
-      pending: o.pending === true,
-    })),
-    ...events.map<HistoryEntry>((e) => ({
-      key: `event:${e.id}`,
-      kind: "event",
-      type: e.type,
-      label: eventLabel(e.type),
-      valueText: eventValueText(e.type, e.payload),
-      at: new Date(e.occurred_at),
-      by: e.recorder_name ?? null,
-      superseded: e.superseded_by !== null,
-      pending: e.pending === true,
-      ...(e.note ? { note: e.note } : {}),
-    })),
+    ...observations.map<HistoryEntry>((o) => {
+      const next = o.superseded_by ? obsById.get(o.superseded_by) : undefined;
+      return {
+        key: `observation:${o.id}`,
+        id: o.id,
+        kind: "observation",
+        type: o.type,
+        label: observationLabel(o.type),
+        valueText: observationValueText(o.type, Number(o.value)),
+        at: new Date(o.observed_at),
+        by: o.observer_name ?? null,
+        superseded: o.superseded_by !== null,
+        correctedTo: next
+          ? correctedText(observationValueText(next.type, Number(next.value)), next.observed_at, o.observed_at)
+          : null,
+        isCorrection: correctionIds.has(o.id),
+        pending: o.pending === true,
+        value: Number(o.value),
+      };
+    }),
+    ...events.map<HistoryEntry>((e) => {
+      const next = e.superseded_by ? evById.get(e.superseded_by) : undefined;
+      return {
+        key: `event:${e.id}`,
+        id: e.id,
+        kind: "event",
+        type: e.type,
+        label: eventLabel(e.type),
+        valueText: eventValueText(e.type, e.payload),
+        at: new Date(e.occurred_at),
+        by: e.recorder_name ?? null,
+        superseded: e.superseded_by !== null,
+        correctedTo: next ? correctedText(eventValueText(next.type, next.payload), next.occurred_at, e.occurred_at) : null,
+        isCorrection: correctionIds.has(e.id),
+        pending: e.pending === true,
+        payload: e.payload,
+        ...(e.note ? { note: e.note } : {}),
+      };
+    }),
     ...photos.map<HistoryEntry>((p) => ({
       key: `photo:${p.id}`,
+      id: p.id,
       kind: "photo",
       type: p.kind,
       label: "写真",
@@ -210,12 +251,33 @@ export function buildHistory(
       at: new Date(p.taken_at),
       by: p.taker_name ?? null,
       superseded: false,
+      correctedTo: null,
+      isCorrection: false,
       pending: p.pending === true,
       photo: { id: p.id, url: p.url, kind: p.kind },
     })),
   ];
+  // 訂正の連鎖の深さ（元の行 0、その訂正 1、さらにその訂正 2 …）。日付を変えない訂正は新旧が同じ時刻になるので、
+  // 同じ時刻・同じ種類なら新しい（深い）行を上にする
+  const predecessor = new Map<string, string>();
+  for (const o of observations) if (o.superseded_by) predecessor.set(o.superseded_by, o.id);
+  for (const e of events) if (e.superseded_by) predecessor.set(e.superseded_by, e.id);
+  const depth = (id: string): number => {
+    let d = 0;
+    const seen = new Set<string>([id]);
+    for (let cur = predecessor.get(id); cur !== undefined && !seen.has(cur); cur = predecessor.get(cur)) {
+      seen.add(cur);
+      d += 1;
+    }
+    return d;
+  };
+  const depthByKey = new Map(entries.map((e) => [e.key, e.kind === "photo" ? 0 : depth(e.id)]));
   return entries.sort(
-    (a, b) => b.at.getTime() - a.at.getTime() || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.key.localeCompare(b.key),
+    (a, b) =>
+      b.at.getTime() - a.at.getTime() ||
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      (depthByKey.get(b.key) ?? 0) - (depthByKey.get(a.key) ?? 0) ||
+      a.key.localeCompare(b.key),
   );
 }
 

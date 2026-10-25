@@ -46,7 +46,7 @@ async function History({ params }: { params: Promise<{ stemId: string }> }) {
           <CardTitle>履歴</CardTitle>
         </CardHeader>
         <CardContent>
-          <StemHistory entries={stem.history} />
+          <StemHistory entries={stem.history} correctable />
         </CardContent>
       </Card>
     </AppScreen>

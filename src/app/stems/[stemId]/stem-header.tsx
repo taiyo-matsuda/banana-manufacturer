@@ -1,6 +1,7 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { budLeafSnapshotText } from "@/lib/corrections";
 import { generationLabel, stemStatusLabel } from "@/lib/stems/status";
 import type { StemView } from "./load";
 
@@ -38,6 +39,17 @@ export function StemHeader({ stem }: { stem: StemView }) {
                 </span>{" "}
                 枚
                 <span className="ml-2 text-sm text-muted-foreground">（初期 {stem.initialLeafCount} 枚）</span>
+              </dd>
+            </>
+          )}
+          {/* 2-6: 出蕾より前の新葉を訂正して、出蕾時の記録（payload の cumulative_leaves）と食い違ったときだけ両方を出す */}
+          {stem.budSnapshot && budLeafSnapshotText(stem.budSnapshot) !== null && (
+            <>
+              <dt className="text-muted-foreground">出蕾時</dt>
+              <dd data-testid="stem-bud-snapshot">
+                出蕾時の累計葉数（記録）
+                <span data-testid="stem-bud-recorded">{stem.budSnapshot.recorded}</span> 枚 / 現在の計算{" "}
+                <span data-testid="stem-bud-computed">{stem.budSnapshot.computed}</span> 枚
               </dd>
             </>
           )}

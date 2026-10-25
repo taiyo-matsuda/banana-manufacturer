@@ -445,8 +445,11 @@ test("4. 記録を編集・削除する UI がない（イベントを記録し�
   for (const url of [`/stems/${stemId}`, `/stems/${stemId}/history`]) {
     await page.goto(url);
     await expect(view(page).getByTestId("history-item")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /削除|編集|訂正/ })).toHaveCount(0);
-    await expect(view(page).getByTestId("history-item").locator("button, a, input, select, textarea")).toHaveCount(0);
+    // 2-6 で各行に「訂正」ボタン（新しい行を追加する）ができた。削除・編集の操作はない
+    await expect(page.getByRole("button", { name: /削除|編集/ })).toHaveCount(0);
+    // 履歴の各行の操作は「訂正」ボタンだけ（リンク・入力はない）
+    await expect(view(page).getByTestId("history-item").locator("a, input, select, textarea")).toHaveCount(0);
+    await expect(view(page).getByTestId("history-item").locator("button:not([data-testid=correct-open])")).toHaveCount(0);
   }
   // DB の正本: イベントは削除できず、superseded_by 以外は更新できない
   const supabase = await supabaseAsA();

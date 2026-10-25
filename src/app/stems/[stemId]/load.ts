@@ -2,6 +2,7 @@ import "server-only";
 
 import { notFound } from "next/navigation";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
+import { type BudLeafSnapshot, budLeafSnapshot } from "@/lib/corrections";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
 import {
@@ -27,7 +28,8 @@ export type StemView = {
   byCheck: number | null;
   checkWarning: string | null;
   canRecord: boolean;
-  latestObservedOn: string | null; // 直近の観測日（JST、YYYY-MM-DD）。出蕾の「前回訪問日」の既定値
+  latestObservedOn: string | null; // 直近の観測日（JST、YYYY-MM-DD。訂正済みを除く）。出蕾の「前回訪問日」の既定値
+  budSnapshot: BudLeafSnapshot | null; // 2-6: 出蕾時の累計葉数（記録）と現在の観測からの計算
   history: HistoryEntry[];
   // 1-9: Client Component が outbox の未送信分を重ねるための生データと、記録に必要な id
   userId: string; // observed_by / recorded_by / taken_by
@@ -142,7 +144,8 @@ export async function loadStem(stemId: string): Promise<StemView> {
     byCheck,
     checkWarning: leafCheckWarning(cumulative, byCheck),
     canRecord: canRecordLeaves(stem.status),
-    latestObservedOn: latestDateJst(observationRows.map((o) => o.observed_at)),
+    latestObservedOn: latestDateJst(observationRows.filter((o) => o.superseded_by === null).map((o) => o.observed_at)),
+    budSnapshot: budLeafSnapshot(initialLeafCount, observationRows, eventRows),
     history: buildHistory(observationRows, eventRows, photoRows),
     userId: user.id,
     organizationId: stem.organization_id,
