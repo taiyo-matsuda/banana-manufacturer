@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { applyOutbox } from "@/lib/offline/overlay";
 import type { OutboxItem, PendingPhoto } from "@/lib/offline/types";
+import { useHeldItems } from "@/lib/offline/use-held-items";
 import { useLiveQuery, useOutboxForStem } from "@/lib/offline/use-live-query";
 import { buildHistory, canRecordLeaves, toLeafObservations, toLeavesRemoved } from "@/lib/stems/records";
 import { stemStatusLabel } from "@/lib/stems/status";
@@ -103,25 +104,6 @@ export function StemRecordClient({ stem }: { stem: StemView }) {
       </Card>
     </article>
   );
-}
-
-// outbox から消えた（送信済み）がサーバーの props にまだ無い項目を、props に現れるまで保持する
-// （props / 購読結果が変わったときに描画中に state を調整する、React の「adjusting state when a prop changes」の形）
-function useHeldItems(pending: OutboxItem[], serverIds: Set<string>): OutboxItem[] {
-  const [tracked, setTracked] = useState<{ pending: OutboxItem[]; serverIds: Set<string>; held: OutboxItem[] }>({
-    pending,
-    serverIds,
-    held: [],
-  });
-  if (tracked.pending !== pending || tracked.serverIds !== serverIds) {
-    const pendingIds = new Set(pending.map((i) => i.id));
-    const next = new Map<string, OutboxItem>();
-    for (const i of [...tracked.held, ...tracked.pending]) {
-      if (!pendingIds.has(i.id) && !serverIds.has(i.id)) next.set(i.id, i);
-    }
-    setTracked({ pending, serverIds, held: [...next.values()] });
-  }
-  return tracked.held;
 }
 
 // 未送信の写真の Blob（pendingPhotos）を object URL にして履歴のサムネイルに使う。変わったら前の URL を revoke する

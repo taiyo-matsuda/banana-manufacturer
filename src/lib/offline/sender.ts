@@ -54,6 +54,19 @@ export function createSender(db: AppDb, supabase: SupabaseBrowser = createClient
           if (error) fail(error, status);
           return;
         }
+        if (p.method === "record_sucker_emerged") {
+          // 2-1: 吸芽の茎とイベントを 1 トランザクションで（0010: p_event_id で冪等）
+          const { error, status } = await supabase.rpc("record_sucker_emerged", {
+            p_event_id: p.id,
+            p_sucker_stem_id: p.sucker_stem_id,
+            p_parent_stem_id: p.parent_stem_id,
+            p_occurred_at: p.occurred_at,
+            p_payload: p.payload,
+            p_note: p.note,
+          });
+          if (error) fail(error, status);
+          return;
+        }
         const { error, status } = await supabase.rpc("record_stem_event", {
           p_id: p.id,
           p_stem_id: p.stem_id,

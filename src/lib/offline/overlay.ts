@@ -4,7 +4,7 @@
 // - 未送信の行は pending=true（履歴に「未同期」の印）
 // - 茎の状態は、未送信の茎イベント（出蕾 → flowered、収穫 → harvested、被害 lost → lost）を created_at 順に適用した
 //   「見かけの状態」にする。記録ボタンの出し分け（canRecordLeaves / canRecordEvent）はこの状態で判定する
-import { nextStatus } from "../stemEvents";
+import { nextStatus, todayJst } from "../stemEvents";
 import type { EventRow, ObservationRow, PhotoRow } from "../stems/records";
 import type { OutboxItem } from "./types";
 
@@ -98,4 +98,76 @@ export function applyOutbox(
     }
   }
   return { status, observations, events, photos, pendingCount };
+}
+
+// --- 株の詳細への重ね合わせ（2-1） ------------------------------------------------
+//
+// 株の詳細の茎一覧（サーバーの茎と、その葉の観測）に、outbox の未送信分を重ねる:
+// - 未送信の吸芽（record_sucker_emerged）は、その sucker_stem_id の茎がサーバーに無ければ status=sucker・pending=true の茎として足す
+//   （generation=親+1、started_at=occurred_at の日本時間の日付、initial_leaf_count=0。RPC と同じ）
+// - 未送信の観測は、その茎の observations に足す（累計葉数・吸芽の parent_cumulative_leaves・前回訪問日の既定値に効く）
+// - 未送信の茎イベント（出蕾など）は、その茎の見かけの状態に反映する（吸芽の親茎の候補の判定に効く）
+
+export type MatStemObservation = { id: string; type: string; value: number; observed_at: string; pending?: boolean };
+
+export type MatStemRow = {
+  id: string;
+  generation: number;
+  status: string;
+  started_at: string;
+  initial_leaf_count: number;
+  parent_stem_id: string | null;
+  observations: MatStemObservation[];
+  pending?: boolean; // 未同期の吸芽（サーバーにまだ無い茎）
+};
+
+export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly OutboxItem[]): MatStemRow[] {
+  const result = stems.map((s) => ({ ...s, observations: s.observations.map((o) => ({ ...o })) }));
+  const byId = new Map(result.map((s) => [s.id, s]));
+  const knownObs = new Set(result.flatMap((s) => s.observations.map((o) => o.id)));
+  const sorted = [...items].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+
+  for (const item of sorted) {
+    const stem = byId.get(item.stem_id);
+    if (!stem) continue;
+    if (item.kind === "observation") {
+      if (knownObs.has(item.payload.id)) continue;
+      knownObs.add(item.payload.id);
+      stem.observations.push({
+        id: item.payload.id,
+        type: item.payload.type,
+        value: item.payload.value,
+        observed_at: item.payload.observed_at,
+        pending: true,
+      });
+    } else if (item.kind === "event") {
+      const p = item.payload;
+      if (p.method === "record_stem_event") {
+        stem.status = nextStatus(stem.status, p.type, p.payload) ?? stem.status;
+      } else if (p.method === "record_sucker_emerged") {
+        if (byId.has(p.sucker_stem_id)) continue;
+        const sucker: MatStemRow = {
+          id: p.sucker_stem_id,
+          generation: stem.generation + 1,
+          status: "sucker",
+          started_at: todayJst(new Date(p.occurred_at)),
+          initial_leaf_count: 0,
+          parent_stem_id: stem.id,
+          observations: [],
+          pending: true,
+        };
+        result.push(sucker);
+        byId.set(sucker.id, sucker);
+      }
+    }
+  }
+  return result;
+}
+
+// 株の詳細で、送信済みで outbox から消えたがサーバーの props にまだ無い項目を保持するときの鍵。
+// 観測は観測の id、吸芽は吸芽の茎の id（株の詳細が持つのは茎と観測なので）。それ以外は保持しない（null）
+export function matHoldKey(item: OutboxItem): string | null {
+  if (item.kind === "observation") return item.payload.id;
+  if (item.kind === "event" && item.payload.method === "record_sucker_emerged") return item.payload.sucker_stem_id;
+  return null;
 }

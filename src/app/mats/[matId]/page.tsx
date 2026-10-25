@@ -3,23 +3,23 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MapIcon, PencilIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
-import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
 import { DeviceOwner } from "@/components/app/device-store";
 import { RememberMat } from "@/components/app/remember-mat";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cumulativeLeaves, type LeafObservation } from "@/lib/leaves";
 import { FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE, firstStemPlantedAtDiffers } from "@/lib/mats/edit";
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
 import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
-import { generationLabel, sortStemsByGeneration, stemStatusLabel } from "@/lib/stems/status";
+import type { MatStemRow } from "@/lib/offline/overlay";
+import { sortStemsByGeneration } from "@/lib/stems/status";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
+import { MatStems } from "./mat-stems";
 import { StemForm } from "./stem-form";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
-// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。予測収穫日（ステップ 3）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
+// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。予測収穫日（ステップ 3）、吸芽の採用/株分け（2-2）は後のタスクで追加する。
 // 株の編集（/mats/[matId]/edit、UX-2）への導線。株の植え付け日と最初の茎の植え付け日がずれていたら注意を出す（データは直さない）。
 // 開いた株は端末に残し、ホームの「最近開いた株」から 1 タップで戻れる（UX-1）。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
@@ -68,9 +68,8 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
       .maybeSingle(),
     supabase
       .from("stems")
-      .select("id, generation, status, started_at, initial_leaf_count, observations ( type, value, observed_at )")
+      .select("id, generation, status, started_at, initial_leaf_count, parent_stem_id, observations ( id, type, value, observed_at )")
       .eq("mat_id", matId)
-      .eq("observations.type", "leaves_new")
       .is("observations.superseded_by", null)
       .order("generation")
       .order("started_at"),
@@ -86,13 +85,17 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
 
   const sortedStems = sortStemsByGeneration(stemRows ?? []);
 
-  const leavesByStem = new Map<string, LeafObservation[]>();
-  for (const s of sortedStems) {
-    leavesByStem.set(
-      s.id,
-      (s.observations ?? []).map((o) => ({ type: "leaves_new", value: Number(o.value), observedAt: new Date(o.observed_at) })),
-    );
-  }
+  // 2-1: 茎一覧は Client Component（mat-stems.tsx）が端末の未送信分（吸芽・観測）を重ねて描く。
+  // 観測は全種類の現在の値（累計葉数は leaves_new だけを数える。前回訪問日の既定値は全種類の直近の観測日）
+  const matStems: MatStemRow[] = sortedStems.map((s) => ({
+    id: s.id,
+    generation: s.generation,
+    status: s.status,
+    started_at: s.started_at,
+    initial_leaf_count: s.initial_leaf_count ?? 0,
+    parent_stem_id: s.parent_stem_id,
+    observations: (s.observations ?? []).map((o) => ({ id: o.id, type: o.type, value: Number(o.value), observed_at: o.observed_at })),
+  }));
 
   // 茎の登録: 栽培中（active / flowered）が 3 本ならフォームを出さず理由を表示（DB の正本はトリガー）
   const addCheck = canAddActiveStem(sortedStems);
@@ -168,43 +171,8 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
             <p role="alert" className="text-destructive">
               茎を取得できませんでした（{stemsError.message}）
             </p>
-          ) : sortedStems.length === 0 ? (
-            <p className="text-muted-foreground" data-testid="stems-empty">
-              茎なし
-            </p>
           ) : (
-            <LinkList data-testid="stem-list">
-              {sortedStems.map((s) => (
-                <LinkListItem
-                  key={s.id}
-                  data-testid="stem-item"
-                  data-stem-id={s.id}
-                  data-generation={s.generation}
-                  data-status={s.status}
-                >
-                  <LinkRow
-                    href={`/stems/${s.id}`}
-                    data-testid="stem-link"
-                    aria-label={`${generationLabel(s.generation)}の記録入力`}
-                  >
-                    <span>
-                      <span className="font-medium">{generationLabel(s.generation)}</span>
-                      <span className="ml-2 text-sm text-muted-foreground">第 {s.generation} 世代</span>
-                    </span>
-                    <span className="flex flex-col items-end text-sm text-muted-foreground">
-                      <span data-testid="stem-status">{stemStatusLabel(s.status)}</span>
-                      <span>
-                        累計葉数{" "}
-                        <span className="text-base font-semibold text-foreground" data-testid="stem-cumulative-leaves">
-                          {cumulativeLeaves(s.initial_leaf_count, leavesByStem.get(s.id) ?? [])}
-                        </span>{" "}
-                        枚
-                      </span>
-                    </span>
-                  </LinkRow>
-                </LinkListItem>
-              ))}
-            </LinkList>
+            <MatStems stems={matStems} canRecordSucker={mat.status !== "removed"} />
           )}
 
           {mat.status !== "removed" &&

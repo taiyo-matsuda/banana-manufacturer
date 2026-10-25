@@ -69,27 +69,46 @@ async function removeE2EPhotoObjects(supabase: SupabaseClient) {
   const { data: fields, error: fErr } = await supabase.from("fields").select("id").like("name", "E2E%");
   if (fErr) throw new Error(`E2E の掃除: 圃場を取得できません: ${fErr.message}`);
   if (!fields || fields.length === 0) return;
-  const { data: mats, error: mErr } = await supabase
-    .from("mats")
-    .select("id")
-    .in("field_id", fields.map((f) => f.id));
-  if (mErr) throw new Error(`E2E の掃除: 株を取得できません: ${mErr.message}`);
-  if (!mats || mats.length === 0) return;
-  const { data: stems, error: sErr } = await supabase
-    .from("stems")
-    .select("id")
-    .in("mat_id", mats.map((m) => m.id));
-  if (sErr) throw new Error(`E2E の掃除: 茎を取得できません: ${sErr.message}`);
-  const targetIds = [...mats.map((m) => m.id), ...(stems ?? []).map((s) => s.id), ...fields.map((f) => f.id)];
-  const { data: photos, error: pErr } = await supabase.from("photos").select("storage_path").in("target_id", targetIds);
-  if (pErr) throw new Error(`E2E の掃除: 写真を取得できません: ${pErr.message}`);
-  const paths = (photos ?? []).map((p) => p.storage_path as string);
+  const fieldIds = fields.map((f) => f.id as string);
+  const matIds = await selectIdsIn(supabase, "mats", "id", "field_id", fieldIds, "株");
+  if (matIds.length === 0) return;
+  const stemIds = await selectIdsIn(supabase, "stems", "id", "mat_id", matIds, "茎");
+  const targetIds = [...matIds, ...stemIds, ...fieldIds];
+  const paths = await selectIdsIn(supabase, "photos", "storage_path", "target_id", targetIds, "写真");
   if (paths.length === 0) return;
-  await withRetry("写真の実体を消せません", async () => {
-    const { error } = await supabase.storage.from("photos").remove(paths);
-    return { error };
-  });
+  for (const chunk of chunks(paths, IN_CHUNK)) {
+    await withRetry("写真の実体を消せません", async () => {
+      const { error } = await supabase.storage.from("photos").remove(chunk);
+      return { error };
+    });
+  }
   console.log(`E2E の掃除: Storage の写真 ${paths.length} 件を削除`);
+}
+
+// .in() に渡す id が多いと GET の URL が長くなりすぎて fetch failed になる（約 400 個で失敗した）ので、100 個ずつに分ける
+const IN_CHUNK = 100;
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function selectIdsIn(
+  supabase: SupabaseClient,
+  table: string,
+  column: string,
+  filterColumn: string,
+  values: readonly string[],
+  label: string,
+): Promise<string[]> {
+  const result: string[] = [];
+  for (const chunk of chunks(values, IN_CHUNK)) {
+    const { data, error } = await supabase.from(table).select(column).in(filterColumn, chunk);
+    if (error) throw new Error(`E2E の掃除: ${label}を取得できません: ${error.message}`);
+    for (const row of (data ?? []) as unknown as Record<string, string>[]) result.push(row[column]);
+  }
+  return result;
 }
 
 // ポート枯渇などの一時的な `fetch failed` は数秒待って 1 回やり直す（削除は冪等なので安全）

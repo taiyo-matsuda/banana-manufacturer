@@ -154,7 +154,7 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
 目的: 植え付け後の毎週の巡回を速く・漏れなくする。1 タスクずつゲートを通す。依存の順に並べてある（2-1 → 2-2 は必須の順序、ほかは独立）。
 累計葉数の検算（CLAUDE.md のステップ 2 の項目）は 1-6 で実装済み（ずれ 3 枚以上で警告）。
 
-- [ ] **2-1 吸芽の発生の記録**（要件 5.3、data-model の `sucker_emerged`）
+- [x] **2-1 吸芽の発生の記録**（要件 5.3、data-model の `sucker_emerged`）
   - 株の詳細に「吸芽が出た」。入力: 方向（8 方位のボタン）、種類（剣葉 / 水吸芽）、確認日（既定 今日）。親茎は株の栽培中の茎のうち最も世代の若い茎（選び直せる）
   - 新しいマイグレーションの RPC（`record_stem_event` と同じく security invoker、`p_id` で冪等）で、`stems` に `status=sucker`、`parent_stem_id`、`generation=親+1`、`started_at` の行を作り、親茎に `sucker_emerged` イベント（payload: `sucker_stem_id`, `parent_cumulative_leaves`（その時点の親の累計葉数。端末で計算）, `earliest_at`, `direction`, `sucker_type`）を同じトランザクションで記録する
   - オフラインでも記録できる（1-9 の outbox 経由。茎の id は端末で採番）

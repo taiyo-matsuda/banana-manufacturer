@@ -76,6 +76,28 @@ export function newStemEventItem(
   return { ...base(args, args.stemId), kind: "event", payload };
 }
 
+// 吸芽の発生（2-1）: RPC record_sucker_emerged。stem_id は親茎（親の履歴・株の詳細に重ねる）
+export function newSuckerEmergedItem(
+  args: Base & {
+    parentStemId: string;
+    suckerStemId: string;
+    occurredAt: string; // ISO（occurredAtFromDate の結果）
+    payload: Record<string, unknown>;
+  },
+): OutboxItem {
+  const payload: EventPayload = {
+    method: "record_sucker_emerged",
+    id: args.id,
+    type: "sucker_emerged",
+    sucker_stem_id: args.suckerStemId,
+    parent_stem_id: args.parentStemId,
+    occurred_at: args.occurredAt,
+    payload: { ...args.payload, sucker_stem_id: args.suckerStemId },
+    note: null,
+  };
+  return { ...base(args, args.parentStemId), kind: "event", payload };
+}
+
 export function newPhotoItem(
   args: Base & {
     stemId: string;
@@ -119,6 +141,7 @@ export function outboxItemLabel(item: OutboxItem): string {
           debudded: "摘蕾",
           harvested: "収穫",
           damage: "被害",
+          sucker_emerged: "吸芽",
         } as Record<string, string>
       )[item.payload.type] ?? item.payload.type;
     case "photo":

@@ -39,7 +39,20 @@ export type StemEventRpcPayload = {
   note: string | null;
 };
 
-export type EventPayload = EventInsertPayload | StemEventRpcPayload;
+// RPC record_sucker_emerged（0010、2-1）。吸芽の茎（status=sucker）と親茎の sucker_emerged イベントを 1 トランザクションで作る。
+// id（events.id）と sucker_stem_id（stems.id）は端末で採番。id で冪等。outbox 項目の stem_id は親茎（親の履歴に重ねる）
+export type SuckerEmergedRpcPayload = {
+  method: "record_sucker_emerged";
+  id: string;
+  type: "sucker_emerged";
+  sucker_stem_id: string;
+  parent_stem_id: string;
+  occurred_at: string;
+  payload: Record<string, unknown>; // SuckerEmergedPayload（src/lib/suckers.ts）
+  note: string | null;
+};
+
+export type EventPayload = EventInsertPayload | StemEventRpcPayload | SuckerEmergedRpcPayload;
 
 // 写真。Blob は pendingPhotos（同じ id）に別に持つ。uploaded は Storage への保存が済んだか（済んでいれば再送は DB だけ）
 export type PhotoPayload = {

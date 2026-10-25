@@ -30,3 +30,13 @@ export function useOutbox(): OutboxItem[] | null {
 export function useOutboxForStem(stemId: string): OutboxItem[] {
   return useLiveQuery<OutboxItem[]>(() => getDb().outbox.where("stem_id").equals(stemId).sortBy("created_at"), [stemId], []);
 }
+
+// いくつかの茎の未送信分（株の詳細。2-1）。stemIds の中身が同じなら購読し直さない
+export function useOutboxForStems(stemIds: readonly string[]): OutboxItem[] {
+  const key = [...stemIds].sort().join(",");
+  return useLiveQuery<OutboxItem[]>(
+    () => (stemIds.length === 0 ? Promise.resolve([]) : getDb().outbox.where("stem_id").anyOf([...stemIds]).sortBy("created_at")),
+    [key],
+    [],
+  );
+}

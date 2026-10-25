@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { cumulativeLeaves } from "../leaves";
 import { buildHistory, canRecordLeaves, toLeafObservations, type EventRow, type ObservationRow, type PhotoRow } from "../stems/records";
 import { canRecordEvent } from "../stemEvents";
-import { newLeavesRemovedItem, newObservationItem, newPhotoItem, newStemEventItem } from "./items";
-import { applyOutbox, itemsForStem } from "./overlay";
+import { cumulativeLeavesAsOf } from "../suckers";
+import { newLeavesRemovedItem, newObservationItem, newPhotoItem, newStemEventItem, newSuckerEmergedItem, outboxItemLabel } from "./items";
+import { applyOutbox, applyOutboxToMat, itemsForStem, matHoldKey, type MatStemRow } from "./overlay";
 
 const serverObs: ObservationRow[] = [
   { id: "o-server", type: "leaves_new", value: 2, observed_at: "2026-10-01T00:00:00Z", superseded_by: null, observer_name: "太郎" },
@@ -110,5 +111,108 @@ describe("applyOutbox（サーバーの行 + 未送信分の重ね合わせ）",
     const before = JSON.stringify(server);
     applyOutbox(server, [pendingObs("o-1", "2026-10-23T00:00:00Z")], "stem-1");
     expect(JSON.stringify(server)).toBe(before);
+  });
+});
+
+describe("吸芽の発生（2-1）の重ね合わせ", () => {
+  const suckerItem = (id: string, createdAt: string, parentStemId = "stem-1", suckerStemId = "sucker-1") =>
+    newSuckerEmergedItem({
+      id,
+      createdAt: new Date(createdAt),
+      parentStemId,
+      suckerStemId,
+      occurredAt: "2026-10-24T16:00:00Z", // JST 2026-10-25 01:00
+      payload: { parent_cumulative_leaves: 18, earliest_at: null, direction: "NE", sucker_type: "sword" },
+    });
+
+  it("outbox 項目は親茎に紐づき、payload に sucker_stem_id を含む", () => {
+    const item = suckerItem("e-1", "2026-10-25T00:00:00Z");
+    expect(item.stem_id).toBe("stem-1");
+    expect(item.kind).toBe("event");
+    expect(item.payload).toMatchObject({
+      method: "record_sucker_emerged",
+      id: "e-1",
+      type: "sucker_emerged",
+      sucker_stem_id: "sucker-1",
+      parent_stem_id: "stem-1",
+      payload: { sucker_stem_id: "sucker-1", parent_cumulative_leaves: 18, direction: "NE", sucker_type: "sword" },
+    });
+    expect(outboxItemLabel(item)).toBe("吸芽");
+  });
+
+  it("親茎の履歴に未同期のイベントとして重なり、親の状態は変わらない", () => {
+    const r = applyOutbox(server, [suckerItem("e-1", "2026-10-25T00:00:00Z")], "stem-1");
+    expect(r.status).toBe("active");
+    expect(r.events).toHaveLength(1);
+    expect(r.events[0]).toMatchObject({ id: "e-1", type: "sucker_emerged", pending: true });
+    const h = buildHistory(r.observations, r.events, r.photos);
+    const e = h.find((x) => x.key === "event:e-1");
+    expect([e?.label, e?.valueText, e?.pending]).toEqual(["吸芽", "北東・剣葉・親の累計 18 枚", true]);
+  });
+
+  const matStems: MatStemRow[] = [
+    {
+      id: "stem-1",
+      generation: 1,
+      status: "active",
+      started_at: "2026-01-10",
+      initial_leaf_count: 4,
+      parent_stem_id: null,
+      observations: [{ id: "o-server", type: "leaves_new", value: 2, observed_at: "2026-10-01T00:00:00Z" }],
+    },
+  ];
+
+  it("株の詳細: 未送信の吸芽が status=sucker・pending の茎として足される（generation=親+1、started_at は日本時間の日付）", () => {
+    const r = applyOutboxToMat(matStems, [suckerItem("e-1", "2026-10-25T00:00:00Z")]);
+    expect(r).toHaveLength(2);
+    expect(r[1]).toEqual({
+      id: "sucker-1",
+      generation: 2,
+      status: "sucker",
+      started_at: "2026-10-25",
+      initial_leaf_count: 0,
+      parent_stem_id: "stem-1",
+      observations: [],
+      pending: true,
+    });
+    expect(r[0].pending).toBeUndefined();
+  });
+
+  it("株の詳細: サーバーに同じ茎があれば二重に足さない", () => {
+    const withSucker: MatStemRow[] = [
+      ...matStems,
+      { id: "sucker-1", generation: 2, status: "sucker", started_at: "2026-10-25", initial_leaf_count: 0, parent_stem_id: "stem-1", observations: [] },
+    ];
+    const r = applyOutboxToMat(withSucker, [suckerItem("e-1", "2026-10-25T00:00:00Z")]);
+    expect(r).toHaveLength(2);
+    expect(r.every((s) => s.pending === undefined)).toBe(true);
+  });
+
+  it("株の詳細: 未送信の観測が累計に加わり、未送信の出蕾で見かけの状態が flowered になる。他の茎の項目は無視する", () => {
+    const items = [
+      pendingObs("o-1", "2026-10-23T00:00:00Z"),
+      pendingObs("o-server", "2026-10-23T00:00:01Z"), // 同期済み
+      pendingObs("o-x", "2026-10-23T00:00:02Z", "other-stem"),
+      newStemEventItem({ id: "e-bud", createdAt: new Date("2026-10-24T00:00:00Z"), stemId: "stem-1", type: "bud_emerged", occurredAt: "2026-10-24T00:00:00Z", payload: {} }),
+    ];
+    const r = applyOutboxToMat(matStems, items);
+    expect(r).toHaveLength(1);
+    expect(r[0].status).toBe("flowered");
+    expect(r[0].observations.map((o) => [o.id, o.pending])).toEqual([
+      ["o-server", undefined],
+      ["o-1", true],
+    ]);
+    expect(cumulativeLeavesAsOf(4, r[0].observations, "2026-10-25")).toBe(7);
+    // 元の配列は変えない
+    expect(matStems[0].observations).toHaveLength(1);
+    expect(matStems[0].status).toBe("active");
+  });
+
+  it("保持の鍵: 観測は観測の id、吸芽は吸芽の茎の id、それ以外は保持しない", () => {
+    expect(matHoldKey(pendingObs("o-1", "2026-10-23T00:00:00Z"))).toBe("o-1");
+    expect(matHoldKey(suckerItem("e-1", "2026-10-25T00:00:00Z"))).toBe("sucker-1");
+    expect(
+      matHoldKey(newStemEventItem({ id: "e-b", createdAt: new Date(), stemId: "stem-1", type: "bagged", occurredAt: "2026-10-24T00:00:00Z", payload: {} })),
+    ).toBeNull();
   });
 });

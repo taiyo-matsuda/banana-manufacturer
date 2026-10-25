@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { generationLabel, stemStatusLabel } from "@/lib/stems/status";
 import type { StemView } from "./load";
 
-// ヘッダ: 株コード、世代、状態、累計葉数（初期葉数 + Σ leaves_new）、検算のずれの警告。履歴画面と共通
+// ヘッダ: 株コード、世代、状態、累計葉数（初期葉数 + Σ leaves_new。吸芽では出さない）、検算のずれの警告。履歴画面と共通
 export function StemHeader({ stem }: { stem: StemView }) {
   return (
     <Card>
@@ -28,14 +28,19 @@ export function StemHeader({ stem }: { stem: StemView }) {
               {stemStatusLabel(stem.status)}
             </Badge>
           </dd>
-          <dt className="text-muted-foreground">累計葉数</dt>
-          <dd>
-            <span className="text-4xl font-semibold tabular-nums" data-testid="stem-cumulative-leaves">
-              {stem.cumulative}
-            </span>{" "}
-            枚
-            <span className="ml-2 text-sm text-muted-foreground">（初期 {stem.initialLeafCount} 枚）</span>
-          </dd>
+          {/* 吸芽（採用前）は葉を数え始めていない（初期葉数は採用時に入れる。2-2）ので累計を出さない */}
+          {stem.status !== "sucker" && (
+            <>
+              <dt className="text-muted-foreground">累計葉数</dt>
+              <dd>
+                <span className="text-4xl font-semibold tabular-nums" data-testid="stem-cumulative-leaves">
+                  {stem.cumulative}
+                </span>{" "}
+                枚
+                <span className="ml-2 text-sm text-muted-foreground">（初期 {stem.initialLeafCount} 枚）</span>
+              </dd>
+            </>
+          )}
           {stem.byCheck !== null && (
             <>
               <dt className="text-muted-foreground">検算</dt>

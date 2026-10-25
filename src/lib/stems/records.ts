@@ -7,6 +7,7 @@
 import type { LeafObservation, LeavesRemovedEvent } from "../leaves";
 import { photoKindLabel } from "../photos";
 import { stemEventValueText } from "../stemEvents";
+import { suckerEmergedValueText } from "../suckers";
 
 // 記録ボタンを出す状態（茎の記録入力画面）
 export const RECORDABLE_STEM_STATUSES = ["active", "flowered"] as const;
@@ -53,7 +54,7 @@ export const EVENT_LABELS: Record<string, string> = {
   leaves_removed: "枯葉処理",
   fertilized: "施肥",
   damage: "被害",
-  sucker_emerged: "吸芽の発生",
+  sucker_emerged: "吸芽",
   sucker_adopted: "吸芽の採用",
   sucker_removed: "芽かき",
   sucker_transplanted: "株分け",
@@ -97,6 +98,8 @@ export function eventValueText(type: string, payload: Record<string, unknown> | 
     case "harvested":
     case "damage":
       return stemEventValueText(type, p);
+    case "sucker_emerged":
+      return suckerEmergedValueText(p);
     default:
       return Object.entries(p)
         .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
