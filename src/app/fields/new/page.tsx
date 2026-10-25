@@ -10,10 +10,10 @@ export default function NewFieldPage() {
       <Card>
         <CardHeader>
           <CardTitle>新しい圃場</CardTitle>
-          <CardDescription>名前・圃場記号・代表点（緯度経度）を入れます。株の配置は登録後に地図で行います</CardDescription>
+          <CardDescription>名前・圃場記号・代表点（緯度経度）・メモを入れます。株の配置は登録後に地図で行います</CardDescription>
         </CardHeader>
         <CardContent>
-          <FieldForm />
+          <FieldForm mode="create" />
         </CardContent>
       </Card>
     </AppScreen>

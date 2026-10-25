@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { uniqueViolationMessage, validateFieldInput } from "./validation";
+import { FIELD_NOTES_MAX, isFieldCodeChanged, uniqueViolationMessage, validateFieldInput } from "./validation";
 
-const valid = { name: "北の畑", code: "a", lat: "26.5", lng: "127.9" };
+const valid = { name: "北の畑", code: "a", lat: "26.5", lng: "127.9", notes: "" };
 
 describe("validateFieldInput", () => {
   it("正しい入力なら ok。前後の空白を除き、記号は大文字にする", () => {
     const r = validateFieldInput({ ...valid, name: " 北の畑 ", code: " ab1 " });
     expect(r).toEqual({
       ok: true,
-      value: { name: "北の畑", code: "AB1", centerLat: 26.5, centerLng: 127.9 },
+      value: { name: "北の畑", code: "AB1", centerLat: 26.5, centerLng: 127.9, notes: null },
     });
   });
 
@@ -65,7 +65,7 @@ describe("validateFieldInput", () => {
   });
 
   it("複数の誤りは同時に返す", () => {
-    const r = validateFieldInput({ name: "", code: "", lat: "", lng: "" });
+    const r = validateFieldInput({ name: "", code: "", lat: "", lng: "", notes: "" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(Object.keys(r.errors).sort()).toEqual(["code", "lat", "lng", "name"]);
   });
@@ -99,5 +99,33 @@ describe("uniqueViolationMessage", () => {
   it("23505 以外は null", () => {
     expect(uniqueViolationMessage({ code: "42501", message: "rls" })).toBeNull();
     expect(uniqueViolationMessage({})).toBeNull();
+  });
+});
+
+describe("メモ（UX-2）", () => {
+  it("前後の空白を除いて保存し、空なら null", () => {
+    const r1 = validateFieldInput({ ...valid, notes: "  南側は水はけが悪い \n" });
+    expect(r1.ok && r1.value.notes).toBe("南側は水はけが悪い");
+    const r2 = validateFieldInput({ ...valid, notes: "   " });
+    expect(r2.ok && r2.value.notes).toBeNull();
+  });
+  it(`${FIELD_NOTES_MAX} 文字を超えると理由が出る`, () => {
+    const r = validateFieldInput({ ...valid, notes: "あ".repeat(FIELD_NOTES_MAX + 1) });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.notes).toBe(`メモは ${FIELD_NOTES_MAX} 文字以内で入力してください`);
+    expect(validateFieldInput({ ...valid, notes: "あ".repeat(FIELD_NOTES_MAX) }).ok).toBe(true);
+  });
+});
+
+describe("isFieldCodeChanged（UX-2 編集画面の注意）", () => {
+  it("保存時と同じ正規化で比べる（小文字・前後の空白は同じ記号）", () => {
+    expect(isFieldCodeChanged("A", "A")).toBe(false);
+    expect(isFieldCodeChanged("A", " a ")).toBe(false);
+    expect(isFieldCodeChanged("A", "B")).toBe(true);
+    expect(isFieldCodeChanged("AB", "ab1")).toBe(true);
+  });
+  it("空のあいだは変わるとみなさない", () => {
+    expect(isFieldCodeChanged("A", "")).toBe(false);
+    expect(isFieldCodeChanged("A", "  ")).toBe(false);
   });
 });

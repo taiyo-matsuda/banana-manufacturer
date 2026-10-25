@@ -6,6 +6,8 @@ export type RecentMat = {
   id: string;
   code: string;
   fieldName: string | null;
+  // 圃場の名前を変えたときに fieldName を直すため（UX-2）。UX-1 の頃に残した項目には無い（null）
+  fieldId: string | null;
   // ISO 8601。並べ替えには使わず（配列の順が新しい順）、表示や将来の掃除のために残す
   openedAt: string;
 };
@@ -32,6 +34,7 @@ export function parseRecentMats(raw: string | null | undefined): RecentMat[] {
       id: r.id,
       code: r.code,
       fieldName: typeof r.fieldName === "string" ? r.fieldName : null,
+      fieldId: typeof r.fieldId === "string" ? r.fieldId : null,
       openedAt: typeof r.openedAt === "string" ? r.openedAt : "",
     });
   }
@@ -42,4 +45,11 @@ export function parseRecentMats(raw: string | null | undefined): RecentMat[] {
 export function pushRecentMat(list: RecentMat[], item: RecentMat, max = RECENT_MATS_MAX): RecentMat[] {
   const rest = list.filter((m) => m.id !== item.id);
   return [item, ...rest].slice(0, Math.max(0, max));
+}
+
+// 圃場の名前が変わったとき（UX-2）: その圃場の株の fieldName を新しい名前にする。並び順は変えない。
+// 変わる項目がなければ同じ配列を返す（呼び出し側は書き込みを省ける）
+export function renameFieldInRecentMats(list: RecentMat[], fieldId: string, fieldName: string): RecentMat[] {
+  if (!list.some((m) => m.fieldId === fieldId && m.fieldName !== fieldName)) return list;
+  return list.map((m) => (m.fieldId === fieldId ? { ...m, fieldName } : m));
 }

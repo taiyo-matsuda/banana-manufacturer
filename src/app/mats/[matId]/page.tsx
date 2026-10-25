@@ -1,14 +1,16 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { MapIcon } from "lucide-react";
+import { MapIcon, PencilIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
 import { DeviceOwner } from "@/components/app/device-store";
 import { RememberMat } from "@/components/app/remember-mat";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cumulativeLeaves, type LeafObservation } from "@/lib/leaves";
+import { FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE, firstStemPlantedAtDiffers } from "@/lib/mats/edit";
 import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
 import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
 import { generationLabel, sortStemsByGeneration, stemStatusLabel } from "@/lib/stems/status";
@@ -17,6 +19,7 @@ import { StemForm } from "./stem-form";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
 // 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。予測収穫日（ステップ 3）、吸芽の採用/株分け（ステップ 2）は後のタスクで追加する。
+// 株の編集（/mats/[matId]/edit、UX-2）への導線。株の植え付け日と最初の茎の植え付け日がずれていたら注意を出す（データは直さない）。
 // 開いた株は端末に残し、ホームの「最近開いた株」から 1 タップで戻れる（UX-1）。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 // 戻る先（この株の圃場の地図）は株を読んでから決まるので、画面全体を Suspense の中で描く。
@@ -105,6 +108,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
 
   // 茎の登録: 栽培中（active / flowered）が 3 本ならフォームを出さず理由を表示（DB の正本はトリガー）
   const addCheck = canAddActiveStem(sortedStems);
+  const plantedAtDiffers = firstStemPlantedAtDiffers(mat.planted_at, sortedStems);
   const next = nextGeneration(sortedStems);
 
   return (
@@ -118,6 +122,14 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
           <CardTitle className="font-mono text-2xl" data-testid="mat-code">
             {mat.code}
           </CardTitle>
+          <CardAction>
+            <Button asChild variant="outline">
+              <Link href={`/mats/${mat.id}/edit`} data-testid="mat-edit-link">
+                <PencilIcon aria-hidden="true" />
+                編集
+              </Link>
+            </Button>
+          </CardAction>
           {mat.status === "removed" && (
             <p className="text-muted-foreground" data-testid="mat-status">
               この株は除去済みです
@@ -143,6 +155,11 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
               )}
             </dd>
           </dl>
+          {plantedAtDiffers && (
+            <Alert variant="warning" data-testid="mat-planted-at-differs">
+              <AlertDescription>{FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE}</AlertDescription>
+            </Alert>
+          )}
           {field && (
             <Button asChild variant="outline">
               <Link href={`/fields/${field.id}/map`} data-testid="mat-map-link">

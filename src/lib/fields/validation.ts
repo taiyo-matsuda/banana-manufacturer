@@ -1,18 +1,22 @@
-// 圃場の登録フォームの検証。UI に依存しない純粋関数。
-// Server Action から呼び、理由（日本語）を画面に出す。
+// 圃場の登録・編集フォームの検証（登録 /fields/new と編集 /fields/[fieldId]/edit で共通。UX-2）。
+// UI に依存しない純粋関数。Server Action から呼び、理由（日本語）を画面に出す。
 
 export type FieldInput = {
   name: string;
   code: string;
   lat: string;
   lng: string;
+  // メモ（fields.notes）。空なら null で保存する
+  notes: string;
 };
 
 export type FieldErrors = Partial<Record<keyof FieldInput, string>>;
 
-export const EMPTY_FIELD_INPUT: FieldInput = { name: "", code: "", lat: "", lng: "" };
+export const EMPTY_FIELD_INPUT: FieldInput = { name: "", code: "", lat: "", lng: "", notes: "" };
 
-// 登録 Server Action の戻り値（useActionState の state）
+export const FIELD_NOTES_MAX = 2000;
+
+// 登録・編集 Server Action の戻り値（useActionState の state）
 export type CreateFieldState = {
   // 全体のエラー（DB の重複など）
   error: string | null;
@@ -29,6 +33,7 @@ export type ValidFieldInput = {
   code: string;
   centerLat: number;
   centerLng: number;
+  notes: string | null;
 };
 
 export type FieldValidation =
@@ -44,7 +49,7 @@ export function validateFieldInput(input: FieldInput): FieldValidation {
   const name = input.name.trim();
   if (!name) errors.name = "圃場の名前を入力してください";
 
-  const code = input.code.trim().toUpperCase();
+  const code = normalizeFieldCode(input.code);
   if (!code) errors.code = "圃場記号を入力してください";
   else if (!FIELD_CODE_PATTERN.test(code))
     errors.code = "圃場記号は英数字 1〜4 文字で入力してください";
@@ -57,12 +62,37 @@ export function validateFieldInput(input: FieldInput): FieldValidation {
   else if (lng < -180 || lng > 180)
     errors.lng = "経度は -180〜180 の範囲で入力してください";
 
+  const notes = input.notes.trim();
+  if (notes.length > FIELD_NOTES_MAX)
+    errors.notes = `メモは ${FIELD_NOTES_MAX} 文字以内で入力してください`;
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return {
     ok: true,
-    value: { name, code, centerLat: lat as number, centerLng: lng as number },
+    value: {
+      name,
+      code,
+      centerLat: lat as number,
+      centerLng: lng as number,
+      notes: notes || null,
+    },
   };
 }
+
+function normalizeFieldCode(s: string): string {
+  return s.trim().toUpperCase();
+}
+
+// 圃場記号の入力が、保存されている記号から変わるか（編集画面の注意の表示に使う。UX-2）。
+// 比較は保存時と同じ正規化（前後の空白を除き大文字）で行う。空のあいだは「変わる」とみなさない（必須のエラーが出る）
+export function isFieldCodeChanged(original: string, input: string): boolean {
+  const next = normalizeFieldCode(input);
+  return next !== "" && next !== original;
+}
+
+// 圃場記号を変えても既存の株コードは変えない（履歴の整合のため）。採番は既存の最大番号の次（src/lib/mats/code.ts）
+export const FIELD_CODE_CHANGE_NOTICE =
+  "既存の株コードは変わりません。新しく追加する株から新しい記号になります";
 
 // 10 進小数（例: 26.5, -127.9, .5）だけを許す。"0x10" や "1e2" は Number() だと通ってしまうので使わない
 const DECIMAL_PATTERN = /^[+-]?(\d+\.?\d*|\.\d+)$/;

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseRecentMats, pushRecentMat, RECENT_MATS_MAX, type RecentMat } from "./recent-mats";
+import { parseRecentMats, pushRecentMat, RECENT_MATS_MAX, type RecentMat, renameFieldInRecentMats } from "./recent-mats";
 
 const mat = (id: string, code = id.toUpperCase()): RecentMat => ({
   id,
   code,
   fieldName: "第1圃場",
+  fieldId: "f1",
   openedAt: "2026-10-25T00:00:00.000Z",
 });
 
@@ -25,8 +26,8 @@ describe("parseRecentMats", () => {
       null,
     ]);
     expect(parseRecentMats(raw)).toEqual([
-      { id: "a", code: "A-001", fieldName: "第1圃場", openedAt: "2026-10-25T00:00:00.000Z" },
-      { id: "b", code: "B-001", fieldName: null, openedAt: "" },
+      { id: "a", code: "A-001", fieldName: "第1圃場", fieldId: null, openedAt: "2026-10-25T00:00:00.000Z" },
+      { id: "b", code: "B-001", fieldName: null, fieldId: null, openedAt: "" },
     ]);
   });
 });
@@ -47,5 +48,22 @@ describe("pushRecentMat", () => {
     for (const id of ["a", "b", "c", "d", "e", "f", "g"]) list = pushRecentMat(list, mat(id));
     expect(list).toHaveLength(RECENT_MATS_MAX);
     expect(list.map((m) => m.id)).toEqual(["g", "f", "e", "d", "c"]);
+  });
+});
+
+describe("renameFieldInRecentMats（UX-2）", () => {
+  it("その圃場の株だけ fieldName を新しい名前にし、並び順は変えない", () => {
+    const list = [mat("a"), { ...mat("b"), fieldId: "f2", fieldName: "第2圃場" }, mat("c")];
+    const next = renameFieldInRecentMats(list, "f1", "北の畑");
+    expect(next.map((m) => [m.id, m.fieldName])).toEqual([
+      ["a", "北の畑"],
+      ["b", "第2圃場"],
+      ["c", "北の畑"],
+    ]);
+  });
+  it("変わる項目がなければ同じ配列を返す", () => {
+    const list = [mat("a")];
+    expect(renameFieldInRecentMats(list, "f1", "第1圃場")).toBe(list);
+    expect(renameFieldInRecentMats(list, "other", "x")).toBe(list);
   });
 });
