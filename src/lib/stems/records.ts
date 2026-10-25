@@ -5,6 +5,7 @@
 // - 観測・イベントは追記のみ。編集・削除はしない（訂正はステップ 2 で superseded_by による新レコードの追加）
 // - 履歴は観測・イベント・写真を 1 つの時系列に混ぜ、新しい順に並べる
 import type { LeafObservation, LeavesRemovedEvent } from "../leaves";
+import { fertilizedValueText } from "../fertilize";
 import { photoKindLabel } from "../photos";
 import { stemEventValueText } from "../stemEvents";
 import { suckerEmergedValueText } from "../suckers";
@@ -59,7 +60,7 @@ export const EVENT_LABELS: Record<string, string> = {
   sucker_removed: "芽かき",
   sucker_transplanted: "株分け",
   stem_removed: "茎の除去",
-  mat_removed: "株の除去",
+  mat_removed: "株の撤去",
 };
 
 export function observationLabel(type: string): string {
@@ -106,6 +107,11 @@ export function eventValueText(type: string, payload: Record<string, unknown> | 
       return "";
     case "sucker_transplanted":
       return "新しい株に植え替え";
+    case "fertilized":
+      return fertilizedValueText(p);
+    case "mat_removed":
+    case "stem_removed":
+      return typeof p.reason === "string" ? p.reason : "";
     default:
       return Object.entries(p)
         .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)

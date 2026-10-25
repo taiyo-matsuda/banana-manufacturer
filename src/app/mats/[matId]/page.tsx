@@ -14,15 +14,18 @@ import { removedMatLabel } from "@/lib/mats/remove";
 import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
 import type { MatStemRow } from "@/lib/offline/overlay";
 import { generationLabel, sortStemsByGeneration } from "@/lib/stems/status";
+import { buildHistory, type EventRow } from "@/lib/stems/records";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { MatStems } from "./mat-stems";
 import { StemForm } from "./stem-form";
+import { StemHistory } from "@/app/stems/[stemId]/stem-history";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
 // 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。吸芽の採用・芽かき・株分け（2-2）は吸芽の行のボタン（sucker-actions.tsx）。株分けで作った株は由来（元の株と茎の世代）へリンクする。予測収穫日（ステップ 3）は後のタスクで追加する。
 // 株の編集（/mats/[matId]/edit、UX-2）への導線。株の植え付け日と最初の茎の植え付け日がずれていたら注意を出す（データは直さない）。
 // 開いた株は端末に残し、ホームの「最近開いた株」から 1 タップで戻れる（UX-1）。
+// 株単位のイベント（target_type=mat。施肥 2-4、株の被害 2-5、撤去など）は「株の記録」に新しい順で出す（茎の履歴と同じ表示）。
 // 撤去した株（2-3、要確認 11）も URL で開ける。上部に「撤去済み（日付・理由）」を出し、記録・編集・吸芽のボタンを出さない。
 // 撤去済みの株は「最近開いた株」に残さない（残っていれば外す）。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
@@ -46,6 +49,9 @@ const ORIGIN_LABELS: Record<string, string> = {
   sucker_transplant: "株分け",
 };
 
+// 株の記録に出す件数（新しい順）
+const MAT_HISTORY_LIMIT = 50;
+
 function originLabel(originType: string): string {
   return ORIGIN_LABELS[originType as MatOriginType] ?? originType;
 }
@@ -60,7 +66,13 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   //   mats.origin_stem_id の FK（mats_origin_stem_fk）で埋め込む（株分け 2-2 で作った株だけが持つ）
   // - 茎: 累計葉数 = 初期葉数 + Σ leaves_new（現在の値 = superseded_by が null の観測だけ）。
   //   埋め込んだ observations を type / superseded_by で絞る（茎の行は絞らない）
-  const [currentUser, { data: mat }, { data: stemRows, error: stemsError }, { data: removedEvents }] = await Promise.all([
+  const [
+    currentUser,
+    { data: mat },
+    { data: stemRows, error: stemsError },
+    { data: removedEvents },
+    { data: matEvents, error: matEventsError },
+  ] = await Promise.all([
     getCurrentUser(),
     supabase
       .from("mats")
@@ -86,6 +98,15 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
       .is("superseded_by", null)
       .order("occurred_at", { ascending: false })
       .limit(1),
+    // 株単位のイベントの履歴（新しい順。訂正済みも打ち消し表示で出す）
+    supabase
+      .from("events")
+      .select("id, type, occurred_at, payload, superseded_by, profiles ( display_name )")
+      .eq("target_type", "mat")
+      .eq("target_id", matId)
+      .order("occurred_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(MAT_HISTORY_LIMIT),
   ]);
   const user = userOrRedirect(currentUser);
   if (!mat) notFound();
@@ -116,6 +137,16 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   const plantedAtDiffers = firstStemPlantedAtDiffers(mat.planted_at, sortedStems);
   const next = nextGeneration(sortedStems);
   const removed = mat.status === "removed";
+
+  const matEventRows: EventRow[] = (matEvents ?? []).map((e) => ({
+    id: e.id,
+    type: e.type,
+    occurred_at: e.occurred_at,
+    payload: (e.payload as Record<string, unknown> | null) ?? null,
+    superseded_by: e.superseded_by,
+    recorder_name: (e.profiles as unknown as { display_name: string | null } | null)?.display_name ?? null,
+  }));
+  const matHistory = buildHistory([], matEventRows);
 
   return (
     <AppScreen title="株の詳細" backHref={field ? `/fields/${field.id}/map` : "/map"} backLabel="地図" current="map">
@@ -209,6 +240,21 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
                 {addCheck.reason}
               </p>
             ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>株の記録</CardTitle>
+        </CardHeader>
+        <CardContent data-testid="mat-history">
+          {matEventsError ? (
+            <p role="alert" className="text-destructive">
+              株の記録を取得できませんでした（{matEventsError.message}）
+            </p>
+          ) : (
+            <StemHistory entries={matHistory} />
+          )}
         </CardContent>
       </Card>
     </AppScreen>

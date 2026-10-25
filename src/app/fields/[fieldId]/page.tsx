@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MapIcon, PencilIcon } from "lucide-react";
+import { MapIcon, PencilIcon, SproutIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { SyncFieldName } from "@/components/app/remember-mat";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,8 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 
-// 圃場の詳細: 名前・記号・代表点・メモと地図への導線、編集（/fields/[fieldId]/edit、UX-2）への導線。
+// 圃場の詳細: 名前・記号・代表点・メモと地図への導線、編集（/fields/[fieldId]/edit、UX-2）への導線、
+// 施肥の一括入力（/fields/[fieldId]/fertilize、2-4）への導線。
 // 土壌分析の入力は後のタスクで追加する。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 export default function FieldDetailPage({ params }: { params: Promise<{ fieldId: string }> }) {
@@ -76,6 +77,12 @@ async function FieldDetail({ params }: { params: Promise<{ fieldId: string }> })
           <Link href={`/fields/${field.id}/map`}>
             <MapIcon aria-hidden="true" />
             地図（株の配置）
+          </Link>
+        </Button>
+        <Button asChild size="lg" variant="outline">
+          <Link href={`/fields/${field.id}/fertilize`} data-testid="field-fertilize-link">
+            <SproutIcon aria-hidden="true" />
+            施肥を記録
           </Link>
         </Button>
       </CardContent>
