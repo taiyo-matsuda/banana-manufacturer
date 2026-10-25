@@ -9,7 +9,7 @@
 // - 各画面を RUNS 回、ページ全体の読み込み（page.goto）で開き、
 //   「ナビゲーション開始から主要な要素が表示されるまで」（performance.now()）と TTFB（navigation の responseStart）を取る
 // - 茎の画面で +1 を押してから未同期件数が 0 に戻るまで（synced）と、その後の router.refresh() の応答が終わるまで（refreshed）を RUNS 回
-// - 応答ヘッダの x-vercel-id（`kix1::hnd1::…` の 2 つ目が関数のリージョン）も残す
+// - 応答ヘッダの x-vercel-id（本番では `kix1::…` とエッジしか出ない）と Server-Timing（proxy が付ける。desc が proxy の実行リージョン）も残す
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
