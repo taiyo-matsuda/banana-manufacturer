@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { type MatEditInput, matUpdateErrorMessage, type UpdateMatState, validateMatEditInput } from "@/lib/mats/edit";
+import { parseRemoveReason } from "@/lib/mats/remove";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,4 +70,36 @@ export async function updateMat(prev: UpdateMatState, formData: FormData): Promi
   // （next/dist/docs の revalidatePath）。画面はどれもリクエストごとに描く（"use cache" なし）ので、ルート全体を対象にする。
   revalidatePath("/", "layout");
   return { error: null, errors: {}, values: { ...values, code }, succeeded: prev.succeeded + 1 };
+}
+
+export type RemoveMatResult = { ok: true } | { ok: false; error: string };
+
+// 株の撤去（2-3、要確認 11）: RPC remove_mat（0012）が 1 トランザクションで mats.status=removed と
+// mat_removed イベント（payload {reason}）を書く。栽培中の茎・未処理の吸芽があれば RPC が日本語の例外で拒否する
+// （画面の事前判定は src/lib/mats/remove.ts の canRemoveMat。正本は DB）。
+// イベントの id は画面が採番する（同じ確定を二重に送っても 1 回だけ）。オンライン前提（株の属性の変更は 1-9 の設計どおり）。
+export async function removeMat(input: { eventId: string; matId: string; reason: string }): Promise<RemoveMatResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "ログインが必要です" };
+  if (!UUID_PATTERN.test(input?.eventId ?? "") || !UUID_PATTERN.test(input?.matId ?? "")) {
+    return { ok: false, error: "画面を再読み込みしてやり直してください" };
+  }
+  const reason = parseRemoveReason(input.reason);
+  if (!reason.ok) return reason;
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_mat", {
+    p_event_id: input.eventId,
+    p_mat_id: input.matId,
+    p_occurred_at: new Date().toISOString(),
+    p_reason: reason.value,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    console.error("remove_mat failed", { code: error.code, message: error.message });
+    return { ok: false, error: "撤去を保存できませんでした。時間をおいて再度お試しください" };
+  }
+  // 撤去した株は地図・株分けの地図から消え、株の詳細は「撤去済み」になる。訪問済みの画面も次に開いたとき取り直す
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

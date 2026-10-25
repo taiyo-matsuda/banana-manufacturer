@@ -53,3 +53,9 @@ export function renameFieldInRecentMats(list: RecentMat[], fieldId: string, fiel
   if (!list.some((m) => m.fieldId === fieldId && m.fieldName !== fieldName)) return list;
   return list.map((m) => (m.fieldId === fieldId ? { ...m, fieldName } : m));
 }
+
+// 撤去した株（2-3）: 一覧から外す。含まれていなければ同じ配列を返す（呼び出し側は書き込みを省ける）
+export function removeRecentMat(list: RecentMat[], id: string): RecentMat[] {
+  if (!list.some((m) => m.id === id)) return list;
+  return list.filter((m) => m.id !== id);
+}

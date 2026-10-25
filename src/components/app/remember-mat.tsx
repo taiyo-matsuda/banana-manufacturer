@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { LAST_FIELD_KEY, parseLastField } from "@/lib/device-prefs";
-import { parseRecentMats, pushRecentMat, RECENT_MATS_KEY, renameFieldInRecentMats } from "@/lib/recent-mats";
+import { parseRecentMats, pushRecentMat, RECENT_MATS_KEY, removeRecentMat, renameFieldInRecentMats } from "@/lib/recent-mats";
 import { readItem, writeItem } from "./device-store";
 
 // 株の詳細を開いたことを端末（localStorage）に残す。ホームの「最近開いた株」が読む。
@@ -57,4 +57,20 @@ function syncStoredFieldName(id: string, name: string) {
   if (renamed !== mats) writeItem(RECENT_MATS_KEY, JSON.stringify(renamed));
   const last = parseLastField(readItem(LAST_FIELD_KEY));
   if (last && last.id === id && last.name !== name) writeItem(LAST_FIELD_KEY, JSON.stringify({ id, name }));
+}
+
+// 撤去した株（2-3）を端末の「最近開いた株」から外す。撤去した端末では撤去の確定時に、
+// 他の端末では撤去済みの株の詳細を開いたときに呼ぶ
+export function forgetRecentMat(id: string) {
+  const mats = parseRecentMats(readItem(RECENT_MATS_KEY));
+  const next = removeRecentMat(mats, id);
+  if (next !== mats) writeItem(RECENT_MATS_KEY, JSON.stringify(next));
+}
+
+// 撤去済みの株の詳細を開いたとき: 「最近開いた株」に残さず、残っていれば外す。画面には何も出さない
+export function ForgetMat({ id }: { id: string }) {
+  useEffect(() => {
+    forgetRecentMat(id);
+  }, [id]);
+  return null;
 }

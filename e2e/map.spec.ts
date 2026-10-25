@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { distanceM } from "../src/lib/geo";
 import { ACTION_TIMEOUT, expect, noSession, test } from "./helpers";
-import { canvasCenter, createField, openMap } from "./map-helpers";
+import { canvasCenter, createField, dragBy, openMap } from "./map-helpers";
 
 // 1-3 圃場マップと株の一括配置。完了条件 1〜5 を 1 つずつ検証する。
 // テスト農園 A でログイン済み（helpers の test がワーカーで 1 回だけ UI ログインし、Cookie を共有する）。
@@ -220,17 +220,7 @@ test("4. 株を1つドラッグしてから確定すると、動かした位置�
 
   // 3 番目の点（1 列目の端）を右下へドラッグ（地図が画面内にあることを確かめてから）
   await map.scrollIntoViewIfNeeded();
-  const target = markers.nth(2);
-  await expect(target).toBeInViewport();
-  const box = await target.boundingBox();
-  expect(box).not.toBeNull();
-  const sx = box!.x + box!.width / 2;
-  const sy = box!.y + box!.height / 2;
-  await page.mouse.move(sx, sy);
-  await page.mouse.down();
-  await page.mouse.move(sx + 30, sy + 20, { steps: 5 });
-  await page.mouse.move(sx + 60, sy + 40, { steps: 10 });
-  await page.mouse.up();
+  await dragBy(page, markers.nth(2), 60, 40);
 
   const after = await readPoints(markers);
   const moved = distanceM(before[2], after[2]);

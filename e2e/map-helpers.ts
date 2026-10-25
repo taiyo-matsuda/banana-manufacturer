@@ -53,8 +53,9 @@ export async function dwarfNamwaId() {
   return data.id as string;
 }
 
-// 株を DB に直接作る（株の追加 UI は 1-4 で検証済み。茎の検証は株の詳細だけを見たい）
-export async function createMat(fieldId: string, code: string, plantedAt = "2026-09-15") {
+// 株を DB に直接作る（株の追加 UI は 1-4 で検証済み。茎の検証は株の詳細だけを見たい）。
+// 位置（at）を省くと圃場の代表点（CENTER）。地図の上で株を見分けたいテスト（2-3 の位置の修正）は離して置く
+export async function createMat(fieldId: string, code: string, plantedAt = "2026-09-15", at: { lat: number; lng: number } = CENTER) {
   const supabase = await supabaseAsA();
   const { data, error } = await supabase
     .from("mats")
@@ -62,8 +63,8 @@ export async function createMat(fieldId: string, code: string, plantedAt = "2026
       field_id: fieldId,
       code,
       cultivar_id: await dwarfNamwaId(),
-      lat: CENTER.lat,
-      lng: CENTER.lng,
+      lat: at.lat,
+      lng: at.lng,
       planted_at: plantedAt,
       origin_type: "tissue_culture",
     })
@@ -101,4 +102,27 @@ export async function createStem(
     .single();
   if (error || !data) throw new Error(`茎を作れません: ${error?.message}`);
   return data.id as string;
+}
+
+// 地図上の点（プレビューの点・位置を直すモードの株の点）をマウスで (dx, dy) px だけドラッグする（1-3 / 2-3 で共通）。
+// 点が画面内にあることを確かめてから、押した位置から 2 段階で動かして離す
+export async function dragBy(page: Page, target: Locator, dx: number, dy: number) {
+  await expect(target).toBeInViewport();
+  const box = await target.boundingBox();
+  if (!box) throw new Error("点の位置が取れません");
+  const sx = box.x + box.width / 2;
+  const sy = box.y + box.height / 2;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  await page.mouse.move(sx + dx / 2, sy + dy / 2, { steps: 5 });
+  await page.mouse.move(sx + dx, sy + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
+// 点の data-lat / data-lng
+export async function readLatLng(el: Locator) {
+  return {
+    lat: Number(await el.getAttribute("data-lat")),
+    lng: Number(await el.getAttribute("data-lng")),
+  };
 }

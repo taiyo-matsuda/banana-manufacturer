@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { defaultCultivarId } from "@/lib/mats/default-cultivar";
 import { FieldMapLoader } from "./field-map-loader";
 
-// 画面 2「圃場マップ」: 航空写真の上に株の点。配置モード（格子で配置 / 1株追加）。株のタップで株の詳細へ。
+// 画面 2「圃場マップ」: 航空写真の上に株の点（撤去した株は出さない）。配置モード（格子で配置 / 1株追加）と「位置を直す」（2-3）。株のタップで株の詳細へ。
 // 現在地ボタン・色分け（1-5 以降）は後のタスクで追加する。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 // ヘッダのタイトル（圃場名）と戻る先は圃場を読んでから決まるので、画面全体を Suspense の中で描く。

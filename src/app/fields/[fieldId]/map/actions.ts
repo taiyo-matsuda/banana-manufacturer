@@ -1,10 +1,11 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { nextMatCodes } from "@/lib/mats/code";
 import { type PlaceMatsInput, validatePlaceMatsInput } from "@/lib/mats/placement";
+import { type RelocateInput, validateRelocateInput } from "@/lib/mats/relocate";
 import { newActiveStemRow } from "@/lib/stems/registration";
 
 export type PlacedMat = { id: string; code: string; lat: number; lng: number };
@@ -110,4 +111,32 @@ export async function placeMats(input: PlaceMatsInput): Promise<PlaceMatsResult>
 
   refresh();
   return { ok: true, mats };
+}
+
+export type RelocateMatsResult = { ok: true; count: number } | { ok: false; error: string };
+
+// 「位置を直す」モードの確定（2-3）: 動かした株だけの lat / lng を、RPC relocate_mats（0013）の 1 回でまとめて更新する。
+// 位置は株の属性の修正なので events は作らない。オンライン前提（株の属性の変更は 1-9 の設計どおりオンラインのみ）。
+// 撤去した株・別の圃場の株が含まれていたら（他の端末で撤去された等）どれも更新せず、理由を返す。
+export async function relocateMats(input: RelocateInput): Promise<RelocateMatsResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "ログインが必要です" };
+  const validation = validateRelocateInput(input);
+  if (!validation.ok) return validation;
+  const { fieldId, moves } = validation.value;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("relocate_mats", {
+    p_field_id: fieldId,
+    p_moves: moves.map((m) => ({ mat_id: m.matId, lat: m.lat, lng: m.lng })),
+  });
+  if (error) {
+    // RPC の日本語の例外（P0001）はそのまま見せる
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    console.error("relocate_mats failed", { code: error.code, message: error.message });
+    return { ok: false, error: "位置を保存できませんでした。時間をおいて再度お試しください" };
+  }
+  // 株の位置は地図・株分けの地図に出る。訪問済みの画面も次に開いたとき取り直す
+  revalidatePath("/", "layout");
+  return { ok: true, count: (data as number | null) ?? moves.length };
 }

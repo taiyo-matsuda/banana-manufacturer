@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRecentMats, pushRecentMat, RECENT_MATS_MAX, type RecentMat, renameFieldInRecentMats } from "./recent-mats";
+import { parseRecentMats, pushRecentMat, RECENT_MATS_MAX, type RecentMat, removeRecentMat, renameFieldInRecentMats } from "./recent-mats";
 
 const mat = (id: string, code = id.toUpperCase()): RecentMat => ({
   id,
@@ -65,5 +65,17 @@ describe("renameFieldInRecentMats（UX-2）", () => {
     const list = [mat("a")];
     expect(renameFieldInRecentMats(list, "f1", "第1圃場")).toBe(list);
     expect(renameFieldInRecentMats(list, "other", "x")).toBe(list);
+  });
+});
+
+describe("removeRecentMat", () => {
+  const a = { id: "a", code: "A-001", fieldName: "北", fieldId: "f", openedAt: "" };
+  const b = { id: "b", code: "A-002", fieldName: "北", fieldId: "f", openedAt: "" };
+  it("撤去した株を外し、残りの順は変えない", () => {
+    expect(removeRecentMat([a, b], "a")).toEqual([b]);
+  });
+  it("含まれていなければ同じ配列を返す", () => {
+    const list = [a, b];
+    expect(removeRecentMat(list, "z")).toBe(list);
   });
 });

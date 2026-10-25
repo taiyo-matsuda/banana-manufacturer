@@ -1,7 +1,8 @@
 "use client";
 
 // 圃場の地図（MapLibre ＋ 地理院タイルの空中写真）の共通部品。圃場マップ（1-3 / 1-4、fields/[fieldId]/map/field-map.tsx）と
-// 株分けの位置の指定（2-2、point-picker-map.tsx）で同じ地図・同じ株の点・同じ目印を使う。
+// 株分けの位置の指定（2-2、point-picker-map.tsx）で同じ地図・同じ株の点・同じ目印を使う。点のドラッグ（attachPointerDrag）は
+// 格子配置のプレビュー（1-3）と「位置を直す」モード（2-3）で共通。
 // ブラウザでしか動かない（maplibre-gl）。読み込む側は next/dynamic の ssr: false で読む。
 import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -20,6 +21,11 @@ const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 if (typeof window !== "undefined") setWorkerUrl(MAPLIBRE_WORKER_URL);
 
 export type MapMat = { id: string; code: string; lat: number; lng: number };
+
+// 「位置を直す」モード（2-3）で動かした株の点の見た目: 黄色の点に濃い輪郭（data-moved="true"）。
+// 動かしていない株は通常の緑の点。色は地図上の DOM なので従来どおり直書き（CLAUDE.md の例外）
+const MAT_DOT_CLASS = "h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 shadow";
+const MOVED_MAT_DOT_CLASS = "h-4 w-4 rounded-full border-2 border-black bg-amber-400 shadow ring-2 ring-amber-200";
 
 export function setLatLngAttrs(el: HTMLElement, p: LatLng) {
   el.dataset.lat = String(p.lat);
@@ -89,7 +95,7 @@ export function createFieldMap(
 // タップの扱い（株の詳細へ / 地図のタップとして扱う）は呼び出し側がコンテナで受ける
 export function addMatMarkers(map: MapLibreMap, mats: readonly MapMat[]): Marker[] {
   return mats.map((mat) => {
-    const el = makeTapTarget("h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 shadow", "cursor-pointer");
+    const el = makeTapTarget(MAT_DOT_CLASS, "cursor-pointer");
     el.dataset.testid = "mat-marker";
     el.setAttribute("data-mat-id", `${mat.id}`);
     el.dataset.code = mat.code;
@@ -99,4 +105,88 @@ export function addMatMarkers(map: MapLibreMap, mats: readonly MapMat[]): Marker
     setLatLngAttrs(el, mat);
     return new Marker({ element: el }).setLngLat([mat.lng, mat.lat]).addTo(map);
   });
+}
+
+// 点のドラッグ（Pointer Events で自前実装。マウスとタッチの両方で同じ動き）。格子配置のプレビュー（1-3）と
+// 「位置を直す」モードの株の点（2-3）で共通。ポインタを押した位置と点の位置のずれを保ち、点が指に飛びつかないようにする。
+// ドラッグ中は地図のパン・タップに伝えない。onEnd は離したときの位置（動かしていなくても呼ぶ）。
+// 戻り値はリスナーを外す関数（モードを抜けたらドラッグできないようにする）
+export function attachPointerDrag(
+  map: MapLibreMap,
+  marker: Marker,
+  el: HTMLElement,
+  onEnd?: (p: LatLng) => void,
+): () => void {
+  let dragging = false;
+  let dx = 0;
+  let dy = 0;
+
+  const toMapPoint = (ev: PointerEvent) => {
+    const rect = map.getContainer().getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  };
+
+  const down = (ev: PointerEvent) => {
+    if (ev.button !== 0 && ev.pointerType === "mouse") return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const p = toMapPoint(ev);
+    const pos = map.project(marker.getLngLat());
+    dx = pos.x - p.x;
+    dy = pos.y - p.y;
+    dragging = true;
+    // pointer が既に無効なときは例外になる（その場合はキャプチャ無しで続ける）
+    try {
+      el.setPointerCapture(ev.pointerId);
+    } catch {
+      // キャプチャできなくても pointermove / pointerup は要素上で受けられる
+    }
+    el.classList.add("cursor-grabbing");
+  };
+  const move = (ev: PointerEvent) => {
+    if (!dragging) return;
+    ev.preventDefault();
+    const p = toMapPoint(ev);
+    const ll = map.unproject([p.x + dx, p.y + dy]);
+    marker.setLngLat(ll);
+    setLatLngAttrs(el, { lat: ll.lat, lng: ll.lng });
+  };
+  const end = (ev: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove("cursor-grabbing");
+    if (el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId);
+    const ll = marker.getLngLat();
+    onEnd?.({ lat: ll.lat, lng: ll.lng });
+  };
+  // 地図のパン・タップ（mousedown / touchstart）に伝えない
+  const stopMouse = (ev: MouseEvent) => ev.stopPropagation();
+  const stopTouch = (ev: TouchEvent) => ev.stopPropagation();
+
+  el.addEventListener("pointerdown", down);
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  el.addEventListener("mousedown", stopMouse);
+  el.addEventListener("touchstart", stopTouch, { passive: true });
+  const prevTouchAction = el.style.touchAction;
+  el.style.touchAction = "none";
+
+  return () => {
+    el.removeEventListener("pointerdown", down);
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", end);
+    el.removeEventListener("pointercancel", end);
+    el.removeEventListener("mousedown", stopMouse);
+    el.removeEventListener("touchstart", stopTouch);
+    el.style.touchAction = prevTouchAction;
+  };
+}
+
+// 動かした株の点の見た目を切り替える（上の MOVED_MAT_DOT_CLASS）
+export function markMatMoved(el: HTMLElement, moved: boolean) {
+  const dot = el.firstElementChild as HTMLElement | null;
+  if (dot) dot.className = `pointer-events-none ${moved ? MOVED_MAT_DOT_CLASS : MAT_DOT_CLASS}`;
+  if (moved) el.dataset.moved = "true";
+  else delete el.dataset.moved;
 }

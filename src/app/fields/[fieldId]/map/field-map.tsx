@@ -3,7 +3,15 @@
 import { LngLatBounds, type Map as MapLibreMap, type MapMouseEvent, Marker } from "maplibre-gl";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { addMatMarkers, createFieldMap, makeGuideMarker, makeTapTarget, setLatLngAttrs } from "@/components/app/field-map-core";
+import {
+  addMatMarkers,
+  attachPointerDrag,
+  createFieldMap,
+  makeGuideMarker,
+  makeTapTarget,
+  markMatMoved,
+  setLatLngAttrs,
+} from "@/components/app/field-map-core";
 import { FormField } from "@/components/app/form-field";
 import { NumberField } from "@/components/app/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,8 +27,9 @@ import {
   MAT_ORIGIN_TYPES,
   type MatOriginType,
 } from "@/lib/mats/placement";
+import { applyPositionOverrides, extractMoves } from "@/lib/mats/relocate";
 import { parseInitialLeafCount } from "@/lib/stems/registration";
-import { placeMats, type PlacedMat } from "./actions";
+import { placeMats, type PlacedMat, relocateMats } from "./actions";
 
 export type FieldMapProps = {
   field: { id: string; name: string; code: string; centerLat: number; centerLng: number };
@@ -31,7 +40,8 @@ export type FieldMapProps = {
 
 // 地図・株の点・目印は株分けの位置の指定（2-2）と共通（src/components/app/field-map-core.ts）
 
-// 格子で配置: pick-origin → pick-direction → form → preview。1株追加: pick-single → single-form
+// 格子で配置: pick-origin → pick-direction → form → preview。1株追加: pick-single → single-form。
+// 位置を直す（2-3）: relocate（既存の株の点をドラッグ → 確定 / 取り消し）。モード外では株の点はドラッグできない
 type Mode =
   | "idle"
   | "pick-origin"
@@ -39,7 +49,8 @@ type Mode =
   | "form"
   | "preview"
   | "pick-single"
-  | "single-form";
+  | "single-form"
+  | "relocate";
 
 type GridForm = {
   rows: string;
@@ -60,57 +71,6 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// プレビュー点のドラッグ（Pointer Events で自前実装。マウスとタッチの両方で同じ動き）。
-// ポインタを押した位置と点の位置のずれを保ち、点が指に飛びつかないようにする
-function attachPointerDrag(map: MapLibreMap, marker: Marker, el: HTMLElement) {
-  let dragging = false;
-  let dx = 0;
-  let dy = 0;
-
-  const toMapPoint = (ev: PointerEvent) => {
-    const rect = map.getContainer().getBoundingClientRect();
-    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
-  };
-
-  el.addEventListener("pointerdown", (ev) => {
-    if (ev.button !== 0 && ev.pointerType === "mouse") return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    const p = toMapPoint(ev);
-    const pos = map.project(marker.getLngLat());
-    dx = pos.x - p.x;
-    dy = pos.y - p.y;
-    dragging = true;
-    // pointer が既に無効なときは例外になる（その場合はキャプチャ無しで続ける）
-    try {
-      el.setPointerCapture(ev.pointerId);
-    } catch {
-      // キャプチャできなくても pointermove / pointerup は要素上で受けられる
-    }
-    el.classList.add("cursor-grabbing");
-  });
-  el.addEventListener("pointermove", (ev) => {
-    if (!dragging) return;
-    ev.preventDefault();
-    const p = toMapPoint(ev);
-    const ll = map.unproject([p.x + dx, p.y + dy]);
-    marker.setLngLat(ll);
-    setLatLngAttrs(el, { lat: ll.lat, lng: ll.lng });
-  });
-  const end = (ev: PointerEvent) => {
-    if (!dragging) return;
-    dragging = false;
-    el.classList.remove("cursor-grabbing");
-    if (el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId);
-  };
-  el.addEventListener("pointerup", end);
-  el.addEventListener("pointercancel", end);
-  // 地図のパン・タップ（mousedown / touchstart）に伝えない
-  el.addEventListener("mousedown", (ev) => ev.stopPropagation());
-  el.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
-  el.style.touchAction = "none";
-}
-
 export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarId }: FieldMapProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -122,11 +82,17 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
   const [mapReady, setMapReady] = useState(false);
   // 確定で保存した株。サーバーのデータ（refresh 後）と合わせて表示する
   const [savedMats, setSavedMats] = useState<PlacedMat[]>([]);
+  // 位置を直して確定した株の新しい位置（サーバーの再描画が届くまでの間も新しい位置に出す）
+  const [savedPositions, setSavedPositions] = useState<ReadonlyMap<string, LatLng>>(() => new Map());
   const mats = useMemo(() => {
     const ids = new Set(initialMats.map((m) => m.id));
-    return [...initialMats, ...savedMats.filter((m) => !ids.has(m.id))];
-  }, [initialMats, savedMats]);
+    return applyPositionOverrides([...initialMats, ...savedMats.filter((m) => !ids.has(m.id))], savedPositions);
+  }, [initialMats, savedMats, savedPositions]);
+  // 位置を直すモードで動かした株（id → 離した位置）。確定で差分だけを送る
+  const [moved, setMoved] = useState<ReadonlyMap<string, LatLng>>(() => new Map());
+
   const [mode, setMode] = useState<Mode>("idle");
+  const relocating = mode === "relocate";
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [direction, setDirection] = useState<LatLng | null>(null);
   // 1株追加でタップした位置
@@ -212,13 +178,34 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     };
   }, [origin, direction, singlePoint, mapReady]);
 
-  // 既存の株を点で表示（色分けは 1-5 以降。いまは単色）。タップで株の詳細へ（配置モード中は地図のタップとして扱う）
+  // 既存の株を点で表示（色分けは 1-5 以降。いまは単色）。タップで株の詳細へ（配置モード中は地図のタップとして扱う）。
+  // 位置を直すモードのときだけ、点にドラッグを付ける（モードを抜けると作り直すので、動かした位置は元に戻る）
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     for (const m of matMarkersRef.current) m.remove();
-    matMarkersRef.current = addMatMarkers(map, mats);
-  }, [mats, mapReady]);
+    const markers = addMatMarkers(map, mats);
+    matMarkersRef.current = markers;
+    if (!relocating) return;
+    const detach = markers.map((marker, i) => {
+      const mat = mats[i];
+      const el = marker.getElement();
+      el.classList.add("cursor-grab");
+      return attachPointerDrag(map, marker, el, (p) => {
+        const changed = extractMoves([mat], new Map([[mat.id, p]])).length > 0;
+        markMatMoved(el, changed);
+        setMoved((prev) => {
+          const next = new Map(prev);
+          if (changed) next.set(mat.id, p);
+          else next.delete(mat.id);
+          return next;
+        });
+      });
+    });
+    return () => {
+      for (const d of detach) d();
+    };
+  }, [mats, mapReady, relocating]);
 
   // プレビュー: 各点をドラッグできるマーカーで表示し、格子全体が見えるようにズームする
   useEffect(() => {
@@ -275,7 +262,38 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
   function cancelPlacement() {
     setError(null);
     resetPicks();
+    setMoved(new Map());
     setMode("idle");
+  }
+
+  function startRelocate() {
+    setError(null);
+    setNotice(null);
+    resetPicks();
+    setMoved(new Map());
+    setMode("relocate");
+  }
+
+  // 位置を直すモードの確定: 動かした株だけを 1 回の Server Action（RPC relocate_mats）で保存する
+  function confirmRelocate() {
+    const moves = extractMoves(mats, moved);
+    if (moves.length === 0) return setError("動かした株がありません。株の点をドラッグしてください");
+    setError(null);
+    startSaving(async () => {
+      const result = await relocateMats({ fieldId: field.id, moves });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSavedPositions((prev) => {
+        const next = new Map(prev);
+        for (const m of moves) next.set(m.matId, { lat: m.lat, lng: m.lng });
+        return next;
+      });
+      setMoved(new Map());
+      setNotice(`${moves.length} 株の位置を直しました`);
+      setMode("idle");
+    });
   }
 
   // 1株追加の確定。格子配置と同じ Server Action（placeMats）に 1 点だけ渡す（採番も同じ）
@@ -362,6 +380,7 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     preview: "点をドラッグして位置を直し、よければ確定してください",
     "pick-single": "株を追加する位置を地図でタップしてください",
     "single-form": "品種などを入力して確定すると、タップした位置に株を 1 つ追加します",
+    relocate: "動かしたい株の点をドラッグしてください。確定すると、動かした株だけ位置を保存します",
   };
 
   // 格子配置と 1株追加で共通の入力（品種・植え付け日・苗の種類）
@@ -452,6 +471,16 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
             <Button type="button" size="lg" variant="outline" onClick={startSingle}>
               1株追加
             </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              onClick={startRelocate}
+              disabled={mats.length === 0}
+              data-testid="relocate-start"
+            >
+              位置を直す
+            </Button>
           </div>
         )}
 
@@ -523,7 +552,38 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
           </Card>
         )}
 
-        {mode !== "idle" && (
+        {relocating && (
+          <div className="flex flex-col gap-3">
+            <p className="text-muted-foreground" data-testid="relocate-moved-count">
+              動かした株 {moved.size}
+            </p>
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="flex-1"
+                onClick={cancelPlacement}
+                disabled={saving}
+                data-testid="relocate-cancel"
+              >
+                取り消し
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                className="flex-1"
+                onClick={confirmRelocate}
+                disabled={saving || moved.size === 0}
+                data-testid="relocate-confirm"
+              >
+                {saving ? "保存中…" : `確定（${moved.size} 株）`}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {mode !== "idle" && !relocating && (
           <Button type="button" size="lg" variant="outline" onClick={cancelPlacement} disabled={saving}>
             やめる
           </Button>
