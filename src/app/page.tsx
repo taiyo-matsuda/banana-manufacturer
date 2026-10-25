@@ -3,15 +3,19 @@ import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { DeviceOwner } from "@/components/app/device-store";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
 import { RecentMats } from "@/components/app/recent-mats";
+import { WeeklyList, WeeklyThresholdToggle } from "@/components/app/weekly-list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
+import { WEEKLY_HOME_LIMIT } from "@/lib/weekly";
+import { fetchWeeklyRows } from "./weekly/data";
 import Link from "next/link";
 
-// 画面 1「ホーム」: 組織名、圃場の一覧（タップで圃場の詳細へ）、最近開いた株（端末に残した直近 5 件）。
-// 未同期件数はヘッダ（layout の SyncStatus）。「今週見る株」「提案」はステップ 2 / 3 で追加する。
+// 画面 1「ホーム」: 組織名、今週見る株（2-7）、圃場の一覧（タップで圃場の詳細へ）、最近開いた株（端末に残した直近 5 件）。
+// 未同期件数はヘッダ（layout の SyncStatus）。「提案」はステップ 3 で追加する。
+// 各区画は別の Suspense で、Supabase への問い合わせは並列に走る（PERF-1: 直列の往復を増やさない）。
 // ログアウトは設定（/fields）にある。
 export default function Home() {
   return (
@@ -19,6 +23,7 @@ export default function Home() {
       <Suspense fallback={<LoadingText />}>
         <OrganizationHeader />
       </Suspense>
+      <WeeklyCard />
       <Suspense fallback={<LoadingText />}>
         <FieldsCard />
       </Suspense>
@@ -51,6 +56,37 @@ async function OrganizationHeader() {
       {profile?.display_name && <p className="text-muted-foreground">{profile.display_name}</p>}
     </section>
   );
+}
+
+// 今週見る株（2-7）: 最初の WEEKLY_HOME_LIMIT 件と「すべて見る（N 件）」→ /weekly。閾値の切り替えは右上
+function WeeklyCard() {
+  return (
+    <Card data-testid="home-weekly">
+      <CardHeader>
+        <CardTitle>今週見る株</CardTitle>
+        <CardAction>
+          <WeeklyThresholdToggle />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <Suspense fallback={<LoadingText />}>
+          <WeeklyRows />
+        </Suspense>
+      </CardContent>
+    </Card>
+  );
+}
+
+async function WeeklyRows() {
+  const { rows, error } = await fetchWeeklyRows();
+  if (error) {
+    return (
+      <p role="alert" className="text-destructive">
+        今週見る株を取得できませんでした（{error}）
+      </p>
+    );
+  }
+  return <WeeklyList rows={rows} limit={WEEKLY_HOME_LIMIT} />;
 }
 
 async function FieldsCard() {

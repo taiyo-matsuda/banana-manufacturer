@@ -215,6 +215,20 @@ active / flowered ── damage(喪失) ──▶ lost
 | status | enum | `open` / `done` / `dismissed` |
 | resolved_at, resolved_by | | |
 
+### weekly_stems（view、0016。2-7 今週見る株）
+画面 1「今週見る株」を 1 回の問い合わせで引くための読み取り専用の view。`security_invoker = true`（呼び出したユーザーの RLS がそのまま効く）。
+撤去していない株（`mats.status = 'active'`）の、栽培中・出蕾済み（`stems.status in ('active','flowered')`）の茎ごとに 1 行。
+
+| 列 | 由来 | 備考 |
+|---|---|---|
+| stem_id, mat_id, generation, status, started_at, bud_emerged_at, initial_leaf_count | stems | |
+| mat_code, mat_status, field_id | mats | |
+| field_name | fields.name | |
+| last_leaves_new_at | max(observations.observed_at) | `type = 'leaves_new'` かつ `superseded_by is null`。観測がなければ null |
+| leaves_new_sum | sum(observations.value) | 同上。なければ 0。累計葉数 = initial_leaf_count + leaves_new_sum |
+
+並べ替え・閾値（7 / 14 日）・今日の除外・未同期分の重ね合わせは `src/lib/weekly.ts`（純粋関数）。観測は全件引かない（茎ごとの要約だけ）。
+
 ## 4. RLS
 
 | テーブル | select | insert | update | delete |
@@ -230,7 +244,7 @@ active / flowered ── damage(喪失) ──▶ lost
 
 | 値 | どこで | 備考 |
 |---|---|---|
-| 累計葉数 | `src/lib/leaves.ts` | 画面表示のたびに観測から計算。必要なら view 化 |
+| 累計葉数 | `src/lib/leaves.ts` | 画面表示のたびに観測から計算。今週見る株は view `weekly_stems` の合計から（同じ式） |
 | 検算値と確認要否 | 同上 | |
 | 積算温度 | `src/lib/gdd.ts` + weather_daily | |
 | 収穫予測日、果房重量 | `src/lib/prediction/` → estimates に追記 | |
