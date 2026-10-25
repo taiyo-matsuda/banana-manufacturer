@@ -79,3 +79,14 @@ export function gridPoints(spec: GridSpec): GridPoint[] {
   }
   return points;
 }
+
+// 中心 center、半径 radiusM（m）の円を近似した多角形の頂点（閉じた輪: 最初と最後が同じ点）。
+// 現在地の精度の円（2-8）に使う。steps は頂点の数（3 以上）
+export function circlePolygon(center: LatLng, radiusM: number, steps = 64): LatLng[] {
+  if (!Number.isInteger(steps) || steps < 3) throw new Error("steps は 3 以上の整数");
+  if (!(radiusM >= 0)) throw new Error("radiusM は 0 以上");
+  const ring: LatLng[] = [];
+  for (let i = 0; i < steps; i++) ring.push(offsetLatLng(center, (360 * i) / steps, radiusM));
+  ring.push(ring[0]);
+  return ring;
+}

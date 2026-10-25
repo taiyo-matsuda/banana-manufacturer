@@ -6,7 +6,7 @@
 // ブラウザでしか動かない（maplibre-gl）。読み込む側は next/dynamic の ssr: false で読む。
 import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { LatLng } from "@/lib/geo";
+import { circlePolygon, type LatLng } from "@/lib/geo";
 
 // 地理院タイル 空中写真（最大ズーム 18。それ以上は拡大表示）
 const GSI_PHOTO_TILES = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg";
@@ -189,4 +189,54 @@ export function markMatMoved(el: HTMLElement, moved: boolean) {
   if (dot) dot.className = `pointer-events-none ${moved ? MOVED_MAT_DOT_CLASS : MAT_DOT_CLASS}`;
   if (moved) el.dataset.moved = "true";
   else delete el.dataset.moved;
+}
+
+// 現在地の点と精度の円（2-8）。株の点（緑の小さな丸）と見分けがつくよう、青い丸に白い太枠と薄い青の輪。
+// 点はタップを受けない（下の株の点を押せるように）。円は accuracy（m）を半径にした GeoJSON の塗り。
+// data-testid="current-location-marker"、data-lat / data-lng / data-accuracy。戻り値は消す関数
+const CURRENT_LOCATION_DOT_CLASS =
+  "pointer-events-none h-5 w-5 rounded-full border-[3px] border-white bg-blue-600 shadow-md ring-4 ring-blue-500/30";
+const ACCURACY_SOURCE = "current-location-accuracy";
+const ACCURACY_FILL_LAYER = "current-location-accuracy-fill";
+const ACCURACY_LINE_LAYER = "current-location-accuracy-line";
+
+export function showCurrentLocation(map: MapLibreMap, p: LatLng & { accuracyM: number }): () => void {
+  const ring = circlePolygon(p, Math.max(0, p.accuracyM));
+  const data: GeoJSON.Feature<GeoJSON.Polygon> = {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "Polygon", coordinates: [ring.map((q) => [q.lng, q.lat])] },
+  };
+  map.addSource(ACCURACY_SOURCE, { type: "geojson", data });
+  map.addLayer({
+    id: ACCURACY_FILL_LAYER,
+    type: "fill",
+    source: ACCURACY_SOURCE,
+    paint: { "fill-color": "#2563eb", "fill-opacity": 0.15 },
+  });
+  map.addLayer({
+    id: ACCURACY_LINE_LAYER,
+    type: "line",
+    source: ACCURACY_SOURCE,
+    paint: { "line-color": "#2563eb", "line-width": 1.5, "line-opacity": 0.6 },
+  });
+
+  const el = makeDot(CURRENT_LOCATION_DOT_CLASS);
+  el.dataset.testid = "current-location-marker";
+  el.dataset.accuracy = String(p.accuracyM);
+  el.ariaLabel = "現在地";
+  setLatLngAttrs(el, p);
+  const marker = new Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
+
+  return () => {
+    marker.remove();
+    // 地図ごと消えた後（map.remove()）に呼ばれても落ちないように
+    try {
+      if (map.getLayer(ACCURACY_LINE_LAYER)) map.removeLayer(ACCURACY_LINE_LAYER);
+      if (map.getLayer(ACCURACY_FILL_LAYER)) map.removeLayer(ACCURACY_FILL_LAYER);
+      if (map.getSource(ACCURACY_SOURCE)) map.removeSource(ACCURACY_SOURCE);
+    } catch {
+      // 地図が破棄済み
+    }
+  };
 }

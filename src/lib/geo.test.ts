@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bearingDeg, distanceM, gridPoints, metersPerDegree, offsetLatLng } from "./geo";
+import { bearingDeg, circlePolygon, distanceM, gridPoints, metersPerDegree, offsetLatLng } from "./geo";
 
 // 沖縄本島北部あたり
 const origin = { lat: 26.5, lng: 127.9 };
@@ -109,5 +109,19 @@ describe("gridPoints", () => {
     expect(() => gridPoints({ origin, bearing: 0, spacingM: 3, rows: 0, perRow: 1 })).toThrow();
     expect(() => gridPoints({ origin, bearing: 0, spacingM: 3, rows: 1, perRow: 1.5 })).toThrow();
     expect(() => gridPoints({ origin, bearing: 0, spacingM: 0, rows: 1, perRow: 1 })).toThrow();
+  });
+});
+
+describe("circlePolygon", () => {
+  it("閉じた輪で、各頂点は中心から半径の距離", () => {
+    const ring = circlePolygon(origin, 30, 16);
+    expect(ring).toHaveLength(17);
+    expect(ring[16]).toEqual(ring[0]);
+    for (const p of ring) expect(distanceM(origin, p)).toBeCloseTo(30, 1);
+  });
+
+  it("steps が 3 未満・半径が負ならエラー", () => {
+    expect(() => circlePolygon(origin, 10, 2)).toThrow();
+    expect(() => circlePolygon(origin, -1)).toThrow();
   });
 });

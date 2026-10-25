@@ -6,10 +6,12 @@ import { RememberField } from "@/components/app/remember-mat";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { defaultCultivarId } from "@/lib/mats/default-cultivar";
+import { representativeStemStatus } from "@/lib/nearby";
 import { FieldMapLoader } from "./field-map-loader";
 
 // 画面 2「圃場マップ」: 航空写真の上に株の点（撤去した株は出さない）。配置モード（格子で配置 / 1株追加）と「位置を直す」（2-3）。株のタップで株の詳細へ。
-// 現在地ボタン・色分け（1-5 以降）は後のタスクで追加する。
+// 現在地ボタンと近い株の候補（2-8）: 押したときだけ現在地を取り、近い順に 3 株（距離・代表の茎の状態）。?locate=1 なら開いた直後に取る。
+// 株の色分けは後のタスクで追加する。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 // ヘッダのタイトル（圃場名）と戻る先は圃場を読んでから決まるので、画面全体を Suspense の中で描く。
 export default function FieldMapPage({ params }: { params: Promise<{ fieldId: string }> }) {
@@ -37,7 +39,8 @@ async function FieldMap({ params }: { params: Promise<{ fieldId: string }> }) {
       supabase.from("fields").select("id, name, code, center_lat, center_lng").eq("id", fieldId).maybeSingle(),
       supabase
         .from("mats")
-        .select("id, code, lat, lng, cultivar_id, created_at")
+        // 近い株の候補に代表の茎の状態を出すので、茎の状態も同じ往復で引く（埋め込み。mats.origin_stem_id もあるので外部キーを指定）
+        .select("id, code, lat, lng, cultivar_id, created_at, stems!stems_mat_id_fkey ( status, generation, started_at )")
         .eq("field_id", fieldId)
         .eq("status", "active")
         .order("code"),
@@ -77,6 +80,7 @@ async function FieldMap({ params }: { params: Promise<{ fieldId: string }> }) {
           }}
           mats={(mats ?? []).map((m) => ({ id: m.id, code: m.code, lat: m.lat, lng: m.lng }))}
           cultivars={cultivars ?? []}
+          stemStatuses={Object.fromEntries((mats ?? []).map((m) => [m.id, representativeStemStatus(m.stems ?? [])]))}
           defaultCultivarId={defaultCultivar}
         />
       )}

@@ -1,8 +1,9 @@
 "use client";
 
 import { LngLatBounds, type Map as MapLibreMap, type MapMouseEvent, Marker } from "maplibre-gl";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { type CurrentPosition, getCurrentPosition } from "@/components/app/current-position";
 import {
   addMatMarkers,
   attachPointerDrag,
@@ -11,7 +12,9 @@ import {
   makeTapTarget,
   markMatMoved,
   setLatLngAttrs,
+  showCurrentLocation,
 } from "@/components/app/field-map-core";
+import { LocateButton, type NearbyMat, NearbyMatList } from "@/components/app/nearby-mats";
 import { FormField } from "@/components/app/form-field";
 import { NumberField } from "@/components/app/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,6 +31,7 @@ import {
   type MatOriginType,
 } from "@/lib/mats/placement";
 import { applyPositionOverrides, extractMoves } from "@/lib/mats/relocate";
+import { geolocationErrorMessage, type GeolocationErrorKind, nearestMats } from "@/lib/nearby";
 import { parseInitialLeafCount } from "@/lib/stems/registration";
 import { placeMats, type PlacedMat, relocateMats } from "./actions";
 
@@ -36,7 +40,12 @@ export type FieldMapProps = {
   mats: PlacedMat[];
   cultivars: { id: string; name: string }[];
   defaultCultivarId: string;
+  // 株ごとの代表の茎の状態（近い株の候補に出す。2-8）。茎のない株・この画面で追加した株は含まない
+  stemStatuses?: Record<string, string | null>;
 };
+
+// 現在地へ寄せるときのズーム（株が 1 株ずつ見える程度。いまのズームがこれより大きければそのまま）
+const LOCATE_ZOOM = 19;
 
 // 地図・株の点・目印は株分けの位置の指定（2-2）と共通（src/components/app/field-map-core.ts）
 
@@ -71,8 +80,10 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarId }: FieldMapProps) {
+export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarId, stemStatuses = {} }: FieldMapProps) {
   const router = useRouter();
+  // ホームの「近くの株を探す」から来たとき（?locate=1）は、地図を開いた直後に現在地を取る
+  const autoLocate = useSearchParams().get("locate") === "1";
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const matMarkersRef = useRef<Marker[]>([]);
@@ -111,6 +122,39 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+
+  // 現在地（2-8）。押したときだけ取得し、保存しない（DB にも localStorage にも）。画面を離れると消える
+  const [position, setPosition] = useState<CurrentPosition | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<GeolocationErrorKind | null>(null);
+  const autoLocatedRef = useRef(false);
+
+  const locate = useCallback(async () => {
+    setLocating(true);
+    setLocateError(null);
+    const result = await getCurrentPosition();
+    setLocating(false);
+    if (!result.ok) {
+      setPosition(null);
+      setLocateError(result.kind);
+      return;
+    }
+    setPosition(result.position);
+    const map = mapRef.current;
+    if (map) {
+      map.easeTo({
+        center: [result.position.lng, result.position.lat],
+        zoom: Math.max(map.getZoom(), LOCATE_ZOOM),
+        duration: 500,
+      });
+    }
+  }, []);
+
+  const nearby = useMemo(() => {
+    if (!position) return [];
+    const candidates: NearbyMat[] = mats.map((m) => ({ ...m, stemStatus: stemStatuses[m.id] ?? null }));
+    return nearestMats(position, candidates);
+  }, [position, mats, stemStatuses]);
 
   // 地図の click ハンドラは一度だけ登録するので、現在のモードは ref 経由で読む
   useEffect(() => {
@@ -164,6 +208,20 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field.id]);
+
+  // ?locate=1 なら地図の準備ができたら 1 回だけ現在地を取る
+  useEffect(() => {
+    if (!autoLocate || !mapReady || autoLocatedRef.current) return;
+    autoLocatedRef.current = true;
+    void locate();
+  }, [autoLocate, mapReady, locate]);
+
+  // 現在地の点と精度の円（地図が作り直されても state から描き直す）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !position) return;
+    return showCurrentLocation(map, position);
+  }, [position, mapReady]);
 
   // 1 点目・2 点目の目印は origin / direction の state から描く（地図が作り直されても state と一致する）
   useEffect(() => {
@@ -449,16 +507,30 @@ export function FieldMap({ field, mats: initialMats, cultivars, defaultCultivarI
 
   return (
     <div className="flex flex-1 flex-col">
-      <div
-        ref={containerRef}
-        data-testid="field-map"
-        data-map-ready={mapReady ? "true" : "false"}
-        data-mode={mode}
-        className="h-[55vh] min-h-72 w-full bg-muted"
-        aria-label="圃場マップ"
-      />
+      {/* 位置情報が使えない理由（地図の上）。地図・株のタップ・配置はそのまま使える */}
+      {locateError && (
+        <Alert variant="warning" className="rounded-none" data-testid="locate-error" data-kind={locateError}>
+          <AlertDescription>{geolocationErrorMessage(locateError)}</AlertDescription>
+        </Alert>
+      )}
+      <div className="relative">
+        <div
+          ref={containerRef}
+          data-testid="field-map"
+          data-map-ready={mapReady ? "true" : "false"}
+          data-mode={mode}
+          className="h-[55vh] min-h-72 w-full bg-muted"
+          aria-label="圃場マップ"
+        />
+        {/* 右下。MapLibre の出典（右下）の上、拡大縮小（右上）とは離す */}
+        <div className="absolute right-2 bottom-10 z-10">
+          <LocateButton locating={locating} onClick={() => void locate()} />
+        </div>
+      </div>
 
       <section className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-4">
+        {position && <NearbyMatList results={nearby} accuracyM={position.accuracyM} />}
+
         <p className="text-muted-foreground" data-testid="mat-count">
           株 {mats.length}
         </p>
