@@ -109,9 +109,29 @@ export async function waitForSynced(page: Page) {
 
 // 圃場記号（英数字 1〜4 文字、組織内で unique）をテストごとに一意にする。
 // 0005 のバックフィルが付けた `X001…` と衝突しないよう、X は使わない。
+// 4 桁の乱数では 1 回の実行で数 % の確率で既存の E2E 圃場と衝突した（2-9 の後の fields 3 の失敗）ので、
+// 1 文字目 = ワーカーの parallelIndex（同時に走るワーカー同士で重ならない）、
+// 残り 3 文字 = ワーカーの起動時刻（0.1 秒単位）から始める連番にする。
+// 同じ parallelIndex で後から起動したワーカーは、前のワーカーが使い切った番号より後から始まる
+// （記号の生成は 0.1 秒に 1 回より遅い）。連番は約 1 時間で一周するが、1 回の実行は十数分で、
+// 前の実行の E2E 圃場は setup の掃除で消える。
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWYZ0123456789";
+const CODE_SPACE = CODE_CHARS.length ** 3;
+let codeCounter = Math.floor(Date.now() / 100) % CODE_SPACE;
+
 export function randomFieldCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWYZ0123456789";
-  let s = "";
-  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
+  let index: number;
+  try {
+    index = test.info().parallelIndex;
+  } catch {
+    index = Math.floor(Math.random() * CODE_CHARS.length); // テストの外（モジュールの読み込み時など）
+  }
+  let n = codeCounter;
+  codeCounter = (codeCounter + 1) % CODE_SPACE;
+  let rest = "";
+  for (let i = 0; i < 3; i++) {
+    rest = CODE_CHARS[n % CODE_CHARS.length] + rest;
+    n = Math.floor(n / CODE_CHARS.length);
+  }
+  return CODE_CHARS[index % CODE_CHARS.length] + rest;
 }
