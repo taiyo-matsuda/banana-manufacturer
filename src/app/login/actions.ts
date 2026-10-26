@@ -34,8 +34,10 @@ export async function login(
   redirect("/");
 }
 
+// この端末のセッションだけを終える（scope: "local"）。既定の "global" は同じユーザーの他の端末のセッションも失効させる
+// （2-9: ログアウトは「この端末のデータを消して別のユーザーに渡せる状態にする」操作。E2E の共有セッションも壊さない）
 export async function logout(): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: "local" });
   redirect("/login");
 }

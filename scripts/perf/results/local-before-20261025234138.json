@@ -1,0 +1,255 @@
+{
+  "label": "local-before",
+  "base": "http://127.0.0.1:3100",
+  "runs": 5,
+  "at": "2026-10-25T23:41:38.777Z",
+  "loginMs": 1829,
+  "vercelRegions": [],
+  "ids": {
+    "fieldId": "49e67412-3460-4820-a39c-0abd96508afc",
+    "matId": "0fedd6be-7b5b-4642-b4f7-91cdd73cf7e6",
+    "stemId": "eba94d07-0a3c-4c00-bdaf-6da8c7659e8b"
+  },
+  "summary": [
+    {
+      "screen": "ホーム",
+      "shownMedianMs": 507,
+      "ttfbMedianMs": 188
+    },
+    {
+      "screen": "圃場一覧",
+      "shownMedianMs": 483,
+      "ttfbMedianMs": 140
+    },
+    {
+      "screen": "圃場詳細",
+      "shownMedianMs": 172,
+      "ttfbMedianMs": 138
+    },
+    {
+      "screen": "株の詳細",
+      "shownMedianMs": 154,
+      "ttfbMedianMs": 115
+    },
+    {
+      "screen": "茎の画面",
+      "shownMedianMs": 189,
+      "ttfbMedianMs": 122
+    },
+    {
+      "screen": "株→茎（タップでクライアント遷移）",
+      "shownMedianMs": 327
+    },
+    {
+      "screen": "+1 の記録",
+      "syncedMedianMs": 86,
+      "refreshedMedianMs": 195
+    }
+  ],
+  "raw": {
+    "home": [
+      {
+        "shown": 313.5999999977648,
+        "ttfb": 228.79999999701977,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.9;desc=\"local\""
+      },
+      {
+        "shown": 505.80000000074506,
+        "ttfb": 166.30000000074506,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.6;desc=\"local\""
+      },
+      {
+        "shown": 507.30000000074506,
+        "ttfb": 166.39999999850988,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 713.8999999985099,
+        "ttfb": 348.19999999925494,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.3;desc=\"local\""
+      },
+      {
+        "shown": 530.5,
+        "ttfb": 188.19999999925494,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.6;desc=\"local\""
+      }
+    ],
+    "fields": [
+      {
+        "shown": 530.8000000007451,
+        "ttfb": 181.60000000149012,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 482.8999999985099,
+        "ttfb": 143,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1;desc=\"local\""
+      },
+      {
+        "shown": 473.30000000074506,
+        "ttfb": 131.40000000223517,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.6;desc=\"local\""
+      },
+      {
+        "shown": 479.0999999977648,
+        "ttfb": 137.79999999701977,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 497.19999999925494,
+        "ttfb": 139.69999999925494,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1;desc=\"local\""
+      }
+    ],
+    "field": [
+      {
+        "shown": 179.19999999925494,
+        "ttfb": 138.19999999925494,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.2;desc=\"local\""
+      },
+      {
+        "shown": 172.30000000074506,
+        "ttfb": 139.10000000149012,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.6;desc=\"local\""
+      },
+      {
+        "shown": 138.19999999925494,
+        "ttfb": 97.89999999850988,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.9;desc=\"local\""
+      },
+      {
+        "shown": 143,
+        "ttfb": 85.59999999776483,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 187.5,
+        "ttfb": 145.09999999776483,
+        "vercelId": null,
+        "serverTiming": "auth;dur=11.8;desc=\"local\""
+      }
+    ],
+    "mat": [
+      {
+        "shown": 340.5,
+        "ttfb": 290.6000000014901,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.1;desc=\"local\""
+      },
+      {
+        "shown": 165.19999999925494,
+        "ttfb": 128.59999999776483,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.8;desc=\"local\""
+      },
+      {
+        "shown": 153.60000000149012,
+        "ttfb": 115.30000000074506,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.9;desc=\"local\""
+      },
+      {
+        "shown": 139,
+        "ttfb": 101.39999999850988,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.6;desc=\"local\""
+      },
+      {
+        "shown": 133.60000000149012,
+        "ttfb": 99.69999999925494,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1.6;desc=\"local\""
+      }
+    ],
+    "stem": [
+      {
+        "shown": 233.60000000149012,
+        "ttfb": 181.40000000223517,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.8;desc=\"local\""
+      },
+      {
+        "shown": 166.09999999776483,
+        "ttfb": 116.59999999776483,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 189,
+        "ttfb": 137,
+        "vercelId": null,
+        "serverTiming": "auth;dur=1;desc=\"local\""
+      },
+      {
+        "shown": 169.69999999925494,
+        "ttfb": 121.89999999850988,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.7;desc=\"local\""
+      },
+      {
+        "shown": 440.29999999701977,
+        "ttfb": 102.5,
+        "vercelId": null,
+        "serverTiming": "auth;dur=0.6;desc=\"local\""
+      }
+    ],
+    "clientNav": [
+      {
+        "shown": 330.5
+      },
+      {
+        "shown": 320.3999999985099
+      },
+      {
+        "shown": 318
+      },
+      {
+        "shown": 329.19999999925494
+      },
+      {
+        "shown": 326.5999999977648
+      }
+    ],
+    "record": [
+      {
+        "synced": 316.8999999985099,
+        "refreshed": 451.69999999925494,
+        "refreshTtfb": 34.30000000074506
+      },
+      {
+        "synced": 85.69999999925494,
+        "refreshed": 194.89999999850988,
+        "refreshTtfb": 22.400000002235174
+      },
+      {
+        "synced": 88.59999999776483,
+        "refreshed": 204.89999999850988,
+        "refreshTtfb": 27
+      },
+      {
+        "synced": 84.09999999776483,
+        "refreshed": 175,
+        "refreshTtfb": 21.600000001490116
+      },
+      {
+        "synced": 80.60000000149012,
+        "refreshed": 174.30000000074506,
+        "refreshTtfb": 19.800000000745058
+      }
+    ]
+  }
+}

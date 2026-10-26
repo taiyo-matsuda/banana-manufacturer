@@ -29,4 +29,9 @@ describe("resolveAuthRedirect（公開パス）", () => {
   it("/offline の下のパスは公開しない", () => {
     expect(resolveAuthRedirect("/offline/x", false)).toBe("/login");
   });
+  it("オフラインの殻（2-9）/offline-shell も未ログインで転送しない（SW がプリキャッシュできるように）。下のパスは公開しない", () => {
+    expect(resolveAuthRedirect("/offline-shell", false)).toBeNull();
+    expect(resolveAuthRedirect("/offline-shell", true)).toBeNull();
+    expect(resolveAuthRedirect("/offline-shell/x", false)).toBe("/login");
+  });
 });

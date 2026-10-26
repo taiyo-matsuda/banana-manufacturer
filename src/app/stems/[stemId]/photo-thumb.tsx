@@ -9,6 +9,14 @@ import type { HistoryPhoto } from "@/lib/stems/records";
 // 画像の URL は非公開バケットの署名付き URL（サーバーで作る）。
 export function PhotoThumb({ photo, alt }: { photo: HistoryPhoto; alt: string }) {
   const [open, setOpen] = useState(false);
+  // オフラインの殻（2-9）: 画像本体はキャッシュしないので、サムネイルの代わりに理由を出す
+  if (!photo.url && photo.offline) {
+    return (
+      <span className="shrink-0 text-sm text-muted-foreground" data-testid="history-photo-offline">
+        写真（オフラインでは表示できません）
+      </span>
+    );
+  }
   if (!photo.url) {
     return (
       <span

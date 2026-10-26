@@ -3,9 +3,9 @@
 
 export const LOGIN_PATH = "/login";
 
-// 認証なしで開けるパス。/offline は Service Worker が圏外時に返す案内ページで、
-// install 時に（認証に関係なく）プリキャッシュできる必要がある（1-10）。
-export const PUBLIC_PATHS: readonly string[] = ["/offline"];
+// 認証なしで開けるパス。/offline は Service Worker が圏外時に返す案内ページ（1-10）、/offline-shell はオフラインの殻（2-9）で、
+// どちらも install 時に（認証に関係なく）プリキャッシュできる必要がある。殻はサーバーでデータを読まない（端末のキャッシュだけ）。
+export const PUBLIC_PATHS: readonly string[] = ["/offline", "/offline-shell"];
 
 export function resolveAuthRedirect(
   pathname: string,

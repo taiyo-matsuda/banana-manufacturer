@@ -1,28 +1,12 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MapIcon, PencilIcon } from "lucide-react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
-import { DeviceOwner } from "@/components/app/device-store";
-import { ForgetMat, RememberMat } from "@/components/app/remember-mat";
-import { TargetDamageRecord } from "@/components/app/target-damage-record";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE, firstStemPlantedAtDiffers } from "@/lib/mats/edit";
-import { MAT_ORIGIN_LABELS, type MatOriginType } from "@/lib/mats/placement";
-import { removedMatLabel } from "@/lib/mats/remove";
-import { canAddActiveStem, nextGeneration } from "@/lib/stems/registration";
+import { MAT_HISTORY_LIMIT, type MatDetailData } from "@/lib/mats/detail";
 import type { MatStemRow } from "@/lib/offline/overlay";
-import { generationLabel, sortStemsByGeneration } from "@/lib/stems/status";
-import { buildHistory, type EventRow } from "@/lib/stems/records";
-import { todayJst } from "@/lib/stemEvents";
+import { sortStemsByGeneration } from "@/lib/stems/status";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
-import { MatStems } from "./mat-stems";
-import { StemForm } from "./stem-form";
-import { StemHistory } from "@/app/stems/[stemId]/stem-history";
-import { recordTargetDamage } from "@/app/fields/[fieldId]/damage/actions";
+import { MatDetailScreen } from "./mat-detail-view";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
 // 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。吸芽の採用・芽かき・株分け（2-2）は吸芽の行のボタン（sucker-actions.tsx）。株分けで作った株は由来（元の株と茎の世代）へリンクする。予測収穫日（ステップ 3）は後のタスクで追加する。
@@ -32,6 +16,7 @@ import { recordTargetDamage } from "@/app/fields/[fieldId]/damage/actions";
 // 株の被害（2-5）は「株の記録」の「被害を記録」（撤去済みの株には出さない）。
 // 撤去した株（2-3、要確認 11）も URL で開ける。上部に「撤去済み（日付・理由）」を出し、記録・編集・吸芽のボタンを出さない。
 // 撤去済みの株は「最近開いた株」に残さない（残っていれば外す）。
+// 表示は mat-detail-view.tsx（オフラインの殻 2-9 と共通）。ここはサーバーでのデータの取得だけ。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 // 戻る先（この株の圃場の地図）は株を読んでから決まるので、画面全体を Suspense の中で描く。
 export default function MatDetailPage({ params }: { params: Promise<{ matId: string }> }) {
@@ -46,18 +31,6 @@ export default function MatDetailPage({ params }: { params: Promise<{ matId: str
       <MatDetail params={params} />
     </Suspense>
   );
-}
-
-const ORIGIN_LABELS: Record<string, string> = {
-  ...MAT_ORIGIN_LABELS,
-  sucker_transplant: "株分け",
-};
-
-// 株の記録に出す件数（新しい順）
-const MAT_HISTORY_LIMIT = 50;
-
-function originLabel(originType: string): string {
-  return ORIGIN_LABELS[originType as MatOriginType] ?? originType;
 }
 
 async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
@@ -120,13 +93,10 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
   const originStem = mat.origin_stem_id
     ? (mat.origin_stem as unknown as { generation: number; mat: { id: string; code: string } | null } | null)
     : null;
-  const originMat = originStem?.mat ?? null;
-
-  const sortedStems = sortStemsByGeneration(stemRows ?? []);
 
   // 2-1: 茎一覧は Client Component（mat-stems.tsx）が端末の未送信分（吸芽・観測）を重ねて描く。
   // 観測は全種類の現在の値（累計葉数は leaves_new だけを数える。前回訪問日の既定値は全種類の直近の観測日）
-  const matStems: MatStemRow[] = sortedStems.map((s) => ({
+  const stems: MatStemRow[] = sortStemsByGeneration(stemRows ?? []).map((s) => ({
     id: s.id,
     generation: s.generation,
     status: s.status,
@@ -136,135 +106,25 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     observations: (s.observations ?? []).map((o) => ({ id: o.id, type: o.type, value: Number(o.value), observed_at: o.observed_at })),
   }));
 
-  // 茎の登録: 栽培中（active / flowered）が 3 本ならフォームを出さず理由を表示（DB の正本はトリガー）
-  const addCheck = canAddActiveStem(sortedStems);
-  const plantedAtDiffers = firstStemPlantedAtDiffers(mat.planted_at, sortedStems);
-  const next = nextGeneration(sortedStems);
-  const removed = mat.status === "removed";
+  const data: MatDetailData = {
+    mat: { id: mat.id, code: mat.code, planted_at: mat.planted_at, origin_type: mat.origin_type, status: mat.status },
+    field,
+    cultivarName: cultivar?.name ?? null,
+    origin: originStem?.mat ? { matId: originStem.mat.id, matCode: originStem.mat.code, generation: originStem.generation } : null,
+    stems,
+    stemsError: stemsError?.message ?? null,
+    removedEvent: removedEvents?.[0] ?? null,
+    history: (matEvents ?? []).map((e) => ({
+      id: e.id,
+      type: e.type,
+      occurred_at: e.occurred_at,
+      payload: (e.payload as Record<string, unknown> | null) ?? null,
+      superseded_by: e.superseded_by,
+      note: e.note,
+      recorder_name: (e.profiles as unknown as { display_name: string | null } | null)?.display_name ?? null,
+    })),
+    historyError: matEventsError?.message ?? null,
+  };
 
-  const matEventRows: EventRow[] = (matEvents ?? []).map((e) => ({
-    id: e.id,
-    type: e.type,
-    occurred_at: e.occurred_at,
-    payload: (e.payload as Record<string, unknown> | null) ?? null,
-    superseded_by: e.superseded_by,
-    note: e.note,
-    recorder_name: (e.profiles as unknown as { display_name: string | null } | null)?.display_name ?? null,
-  }));
-  const matHistory = buildHistory([], matEventRows);
-
-  return (
-    <AppScreen title="株の詳細" backHref={field ? `/fields/${field.id}/map` : "/map"} backLabel="地図" current="map">
-      <DeviceOwner userId={user.id} />
-      {removed ? (
-        <ForgetMat id={mat.id} />
-      ) : (
-        <RememberMat id={mat.id} code={mat.code} field={field ? { id: field.id, name: field.name } : null} />
-      )}
-
-      {removed && (
-        <Alert variant="warning" data-testid="mat-removed">
-          <AlertDescription>{removedMatLabel(removedEvents?.[0] ?? null)}</AlertDescription>
-        </Alert>
-      )}
-
-      <Card>
-        <CardHeader>
-          <p className="text-sm text-muted-foreground">株</p>
-          <CardTitle className="font-mono text-2xl" data-testid="mat-code">
-            {mat.code}
-          </CardTitle>
-          {!removed && (
-            <CardAction>
-              <Button asChild variant="outline">
-                <Link href={`/mats/${mat.id}/edit`} data-testid="mat-edit-link">
-                  <PencilIcon aria-hidden="true" />
-                  編集
-                </Link>
-              </Button>
-            </CardAction>
-          )}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-            <dt className="text-muted-foreground">品種</dt>
-            <dd data-testid="mat-cultivar">{cultivar?.name ?? "（不明）"}</dd>
-            <dt className="text-muted-foreground">植え付け日</dt>
-            <dd data-testid="mat-planted-at">{mat.planted_at}</dd>
-            <dt className="text-muted-foreground">苗の種類</dt>
-            <dd data-testid="mat-origin-type">{originLabel(mat.origin_type)}</dd>
-            <dt className="text-muted-foreground">由来</dt>
-            <dd data-testid="mat-origin">
-              {originMat ? (
-                <Link
-                  href={`/mats/${originMat.id}`}
-                  className="text-primary underline underline-offset-4"
-                  data-testid="mat-origin-link"
-                >
-                  株 {originMat.code}（{generationLabel(originStem!.generation)}）から株分け
-                </Link>
-              ) : (
-                "この位置に植え付け"
-              )}
-            </dd>
-          </dl>
-          {plantedAtDiffers && (
-            <Alert variant="warning" data-testid="mat-planted-at-differs">
-              <AlertDescription>{FIRST_STEM_PLANTED_AT_DIFFERS_MESSAGE}</AlertDescription>
-            </Alert>
-          )}
-          {field && (
-            <Button asChild variant="outline">
-              <Link href={`/fields/${field.id}/map`} data-testid="mat-map-link">
-                <MapIcon aria-hidden="true" />
-                <span className="truncate">地図へ（{field.name}）</span>
-              </Link>
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>茎</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {stemsError ? (
-            <p role="alert" className="text-destructive">
-              茎を取得できませんでした（{stemsError.message}）
-            </p>
-          ) : (
-            <MatStems stems={matStems} canRecordSucker={!removed} />
-          )}
-
-          {!removed &&
-            (addCheck.ok ? (
-              <StemForm matId={mat.id} defaultPlantedAt={mat.planted_at} nextGeneration={next.generation} />
-            ) : (
-              <p className="text-muted-foreground" data-testid="stem-add-blocked">
-                {addCheck.reason}
-              </p>
-            ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>株の記録</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {!removed && <TargetDamageRecord targetType="mat" targetId={mat.id} today={todayJst()} action={recordTargetDamage} />}
-          <div data-testid="mat-history">
-            {matEventsError ? (
-              <p role="alert" className="text-destructive">
-                株の記録を取得できませんでした（{matEventsError.message}）
-              </p>
-            ) : (
-              <StemHistory entries={matHistory} />
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </AppScreen>
-  );
+  return <MatDetailScreen data={data} userId={user.id} />;
 }

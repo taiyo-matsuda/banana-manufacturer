@@ -2,42 +2,12 @@ import "server-only";
 
 import { notFound } from "next/navigation";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
-import { type BudLeafSnapshot, budLeafSnapshot } from "@/lib/corrections";
-import { cumulativeLeaves, cumulativeLeavesByCheck, leafCheckWarning } from "@/lib/leaves";
 import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
-import {
-  buildHistory,
-  canRecordLeaves,
-  type EventRow,
-  type HistoryEntry,
-  type ObservationRow,
-  type PhotoRow,
-  toLeafObservations,
-  toLeavesRemoved,
-} from "@/lib/stems/records";
-import { latestDateJst } from "@/lib/stemEvents";
+import type { EventRow, ObservationRow, PhotoRow } from "@/lib/stems/records";
+import { buildStemView, type StemView } from "@/lib/stems/view";
 import { createClient } from "@/lib/supabase/server";
 
-export type StemView = {
-  id: string;
-  generation: number;
-  status: string;
-  initialLeafCount: number;
-  mat: { id: string; code: string };
-  cumulative: number;
-  byCheck: number | null;
-  checkWarning: string | null;
-  canRecord: boolean;
-  latestObservedOn: string | null; // 直近の観測日（JST、YYYY-MM-DD。訂正済みを除く）。出蕾の「前回訪問日」の既定値
-  budSnapshot: BudLeafSnapshot | null; // 2-6: 出蕾時の累計葉数（記録）と現在の観測からの計算
-  history: HistoryEntry[];
-  // 1-9: Client Component が outbox の未送信分を重ねるための生データと、記録に必要な id
-  userId: string; // observed_by / recorded_by / taken_by
-  organizationId: string; // 写真の Storage パス
-  observations: ObservationRow[];
-  events: EventRow[];
-  photos: PhotoRow[];
-};
+export type { StemView };
 
 // 茎の記録入力（画面 4）と履歴（画面 8）で共通の読み込み。
 // Suspense 境界の内側から呼ぶ（cookies() を読む）。他組織の茎は RLS で見えず notFound。
@@ -129,28 +99,17 @@ export async function loadStem(stemId: string): Promise<StemView> {
     taker_name: nameOf(p.profiles),
   }));
 
-  const leafObs = toLeafObservations(observationRows);
-  const initialLeafCount = stem.initial_leaf_count ?? 0;
-  const cumulative = cumulativeLeaves(initialLeafCount, leafObs);
-  const byCheck = cumulativeLeavesByCheck(leafObs, toLeavesRemoved(eventRows));
-
-  return {
+  // 累計葉数・検算・履歴などの計算はオフラインの殻（2-9）と共通（src/lib/stems/view.ts）
+  return buildStemView({
     id: stem.id,
     generation: stem.generation,
     status: stem.status,
-    initialLeafCount,
+    initialLeafCount: stem.initial_leaf_count ?? 0,
     mat,
-    cumulative,
-    byCheck,
-    checkWarning: leafCheckWarning(cumulative, byCheck),
-    canRecord: canRecordLeaves(stem.status),
-    latestObservedOn: latestDateJst(observationRows.filter((o) => o.superseded_by === null).map((o) => o.observed_at)),
-    budSnapshot: budLeafSnapshot(initialLeafCount, observationRows, eventRows),
-    history: buildHistory(observationRows, eventRows, photoRows),
     userId: user.id,
     organizationId: stem.organization_id,
     observations: observationRows,
     events: eventRows,
     photos: photoRows,
-  };
+  });
 }

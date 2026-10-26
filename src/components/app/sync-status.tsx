@@ -16,6 +16,12 @@ import {
   type SyncState,
 } from "@/lib/offline/sync-client";
 import { useOutbox } from "@/lib/offline/use-live-query";
+import {
+  type CacheSyncState,
+  getCacheSyncState,
+  requestCacheImport,
+  subscribeCacheSync,
+} from "@/lib/offline/cache-client";
 import { formatDateTime } from "@/lib/stems/records";
 
 // 未同期件数（1-9）。layout.tsx に 1 つだけ置き、PageHeader の右側（ホームの左）に重ねて表示する（page-header.tsx 参照）。
@@ -24,6 +30,8 @@ import { formatDateTime } from "@/lib/stems/records";
 // - 1 件以上送れたら router.refresh() して、サーバーの最新（同期済みの行、茎の状態）に画面を揃える
 // - タップで同期状態のパネル（ヘッダの直下に重なる。背景は覆わないので他の操作を妨げない）:
 //   送信中 / 要確認の一覧（last_error 付き、再試行ボタン）/ 手動同期ボタン
+// - 読み取りのキャッシュ（2-9）の取り込みも同じトリガーで走る（sync-client.ts → cache-client.ts）。
+//   パネルに最終同期の日時、「今すぐ同期」（outbox の送信とキャッシュの差分）と「全件を取り直す」
 // - ログイン画面とオフライン画面には出さない
 const HIDDEN_PATHS = ["/login", "/offline"];
 
@@ -32,6 +40,7 @@ export function SyncStatus() {
   const router = useRouter();
   const items = useOutbox();
   const [sync, setSync] = useState<SyncState>(() => getSyncState());
+  const [cache, setCache] = useState<CacheSyncState>(() => getCacheSyncState());
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLDivElement>(null);
 
@@ -55,9 +64,11 @@ export function SyncStatus() {
       setSync(state);
       if (event === "finish" && state.lastResult && state.lastResult.sent > 0) router.refresh();
     });
+    const unsubscribeCache = subscribeCacheSync(setCache);
     const uninstall = installSyncTriggers();
     return () => {
       unsubscribe();
+      unsubscribeCache();
       uninstall();
     };
   }, [router]);
@@ -71,7 +82,14 @@ export function SyncStatus() {
   return (
     <>
       {/* PageHeader（h-14）の右側、ホーム（size-11 + 右余白 8px）の左に重ねる */}
-      <div ref={chipRef} className="fixed top-1.5 right-14 z-50 flex justify-end" data-testid="sync-status">
+      <div
+        ref={chipRef}
+        className="fixed top-1.5 right-14 z-50 flex justify-end"
+        data-testid="sync-status"
+        data-cache-synced-at={cache.meta?.last_synced_at ?? ""}
+        data-cache-full-at={cache.meta?.last_full_at ?? ""}
+        data-cache-running={cache.running ? "true" : "false"}
+      >
         <Button
           type="button"
           variant="outline"
@@ -119,7 +137,16 @@ export function SyncStatus() {
                 {sync.running ? "送信中…" : count === 0 ? "すべて同期済み" : `未送信 ${waiting.length} 件・要確認 ${attention.length} 件`}
               </p>
               <div className="flex shrink-0 gap-2">
-                <Button type="button" size="sm" disabled={sync.running} onClick={() => void requestSync()} data-testid="sync-now">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={sync.running}
+                  onClick={() => {
+                    void requestSync();
+                    void requestCacheImport();
+                  }}
+                  data-testid="sync-now"
+                >
                   今すぐ同期
                 </Button>
                 <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)} data-testid="sync-close">
@@ -128,7 +155,33 @@ export function SyncStatus() {
               </div>
             </div>
             {sync.lastRunAt && !sync.running && (
-              <p className="text-sm text-muted-foreground">最終同期 {formatDateTime(new Date(sync.lastRunAt))}</p>
+              <p className="text-sm text-muted-foreground">最終送信 {formatDateTime(new Date(sync.lastRunAt))}</p>
+            )}
+            {/* 読み取りのキャッシュ（2-9）: 最終同期の日時と全件の取り直し（サーバーで消えた行を反映する） */}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground" data-testid="cache-last-synced">
+                {cache.running
+                  ? "端末のデータを更新中…"
+                  : cache.meta
+                    ? `端末のデータ: 最終同期 ${formatDateTime(new Date(cache.meta.last_synced_at))}`
+                    : "端末のデータ: まだ同期していません"}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                disabled={cache.running}
+                onClick={() => void requestCacheImport({ forceFull: true })}
+                data-testid="cache-full-resync"
+              >
+                全件を取り直す
+              </Button>
+            </div>
+            {cache.lastError && !cache.running && (
+              <p className="text-sm text-muted-foreground" data-testid="cache-error">
+                端末のデータを更新できませんでした（次の同期でやり直します）
+              </p>
             )}
             {attention.length > 0 && (
               <div className="flex flex-col gap-2">

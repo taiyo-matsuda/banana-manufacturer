@@ -105,17 +105,19 @@ test("2a. オンラインで開いた茎の画面は、オフラインで再読�
   await context.setOffline(false);
 });
 
-test("2b. 未訪問の画面をオフラインで開くと、/offline の案内が表示される", async ({ page, context }) => {
+// 2-9 以降、未訪問でも圃場・株・茎・履歴・地図・ホームはオフラインの殻（e2e/cache.spec.ts）が出る。
+// それ以外の画面（編集・施肥・株分けなど）は従来どおり /offline の案内
+test("2b. オフラインの殻の対象でない未訪問の画面をオフラインで開くと、/offline の案内が表示される", async ({ page, context }) => {
   const field = await createField("E2EPWA未訪問");
   const matId = await createMat(field.id, `${field.code}-001`);
-  const stemId = await createStem(matId);
+  await createStem(matId);
 
   await page.goto("/");
   await waitForController(page);
 
   await context.setOffline(true);
-  // 一度も開いていない茎の画面（キャッシュにない）
-  await page.goto(`/stems/${stemId}`);
+  // 一度も開いていない株の編集画面（キャッシュにない。殻の対象でもない）
+  await page.goto(`/mats/${matId}/edit`);
   const offline = page.getByTestId("offline-page");
   await expect(offline).toBeVisible({ timeout: ACTION_TIMEOUT });
   await expect(offline.getByRole("heading", { name: "圏外です" })).toBeVisible();

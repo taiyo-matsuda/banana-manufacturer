@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { budLeafSnapshotText } from "@/lib/corrections";
 import { generationLabel, stemStatusLabel } from "@/lib/stems/status";
-import type { StemView } from "./load";
+import type { StemView } from "@/lib/stems/view";
 
 // ヘッダ: 株コード、世代、状態、累計葉数（初期葉数 + Σ leaves_new。吸芽では出さない）、検算のずれの警告。履歴画面と共通
 export function StemHeader({ stem }: { stem: StemView }) {

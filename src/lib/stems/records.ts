@@ -151,9 +151,10 @@ export type PhotoRow = {
   url: string | null;
   taker_name?: string | null;
   pending?: boolean;
+  offline?: boolean; // オフラインの殻（2-9）で、画像本体が端末に無い（キャッシュは写真のメタデータだけ）
 };
 
-export type HistoryPhoto = { id: string; url: string | null; kind: string };
+export type HistoryPhoto = { id: string; url: string | null; kind: string; offline?: boolean };
 
 export type HistoryEntry = {
   key: string; // "observation:<id>" / "event:<id>" / "photo:<id>"
@@ -254,7 +255,7 @@ export function buildHistory(
       correctedTo: null,
       isCorrection: false,
       pending: p.pending === true,
-      photo: { id: p.id, url: p.url, kind: p.kind },
+      photo: { id: p.id, url: p.url, kind: p.kind, ...(p.offline ? { offline: true } : {}) },
     })),
   ];
   // 訂正の連鎖の深さ（元の行 0、その訂正 1、さらにその訂正 2 …）。日付を変えない訂正は新旧が同じ時刻になるので、

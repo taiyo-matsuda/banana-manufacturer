@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   // 開発用の画面左下のインジケーターは下部タブ（UX-1）の「ホーム」に重なり、E2E のタップを遮るので出さない
   // （コンパイル・実行時のエラー表示は従来どおり出る）
   devIndicators: false,
+  experimental: {
+    // 開発サーバーだけの設定（本番のビルドには関係しない）。既定の true では、React のデバッグ情報が HMR の WebSocket で
+    // 別に届き、最初の Flight の読み込みがそれを待つ。圏外（オフラインの殻 2-9 など、SW が返した HTML）では WebSocket が
+    // つながらないのでハイドレーションが始まらない。false にするとデバッグ情報は HTML の中に入り、圏外でもハイドレーションする
+    reactDebugChannel: false,
+  },
   // Service Worker は HTTP キャッシュに長く残さない（更新が即座に届くように。register-sw.tsx の updateViaCache: "none" と併用）
   async headers() {
     return [

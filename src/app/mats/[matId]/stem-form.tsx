@@ -7,11 +7,13 @@ import { NumberField } from "@/components/app/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useOnline } from "@/lib/offline/use-online";
 import type { RegisterStemState } from "@/lib/stems/registration";
 import { registerStem } from "./actions";
 
 // 株の詳細「茎を登録」フォーム。植え付け日（既定: 株の植え付け日）と初期葉数。
 // 検証はサーバー側で行い、理由を画面に出す（noValidate）。成功したらフォームを閉じる。
+// オンライン前提（Server Action）。圏外（オフラインの殻 2-9 を含む）ではボタンを無効にして理由を出す。
 export function StemForm({
   matId,
   defaultPlantedAt,
@@ -28,6 +30,7 @@ export function StemForm({
     succeeded: 0,
   };
   const [state, formAction, pending] = useActionState(registerStem, initialState);
+  const online = useOnline();
   // 成功した回数が増えたらフォームを閉じる（succeeded が state に乗る）
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const open = openedAt !== null && openedAt === state.succeeded;
@@ -40,10 +43,22 @@ export function StemForm({
             <AlertDescription>茎を登録しました</AlertDescription>
           </Alert>
         )}
-        <Button type="button" variant="outline" size="lg" onClick={() => setOpenedAt(state.succeeded)} data-testid="stem-add">
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          disabled={!online}
+          onClick={() => setOpenedAt(state.succeeded)}
+          data-testid="stem-add"
+        >
           <PlusIcon aria-hidden="true" />
           茎を登録
         </Button>
+        {!online && (
+          <p className="text-sm text-muted-foreground" data-testid="stem-add-offline">
+            茎の登録はオンラインで行ってください
+          </p>
+        )}
       </div>
     );
   }
@@ -89,7 +104,7 @@ export function StemForm({
         </Alert>
       )}
       <div className="flex gap-3">
-        <Button type="submit" size="lg" className="flex-1" disabled={pending} data-testid="stem-submit">
+        <Button type="submit" size="lg" className="flex-1" disabled={pending || !online} data-testid="stem-submit">
           {pending ? "登録中…" : "登録"}
         </Button>
         <Button type="button" size="lg" variant="outline" disabled={pending} onClick={() => setOpenedAt(null)}>

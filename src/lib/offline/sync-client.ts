@@ -7,6 +7,7 @@
 // - バックオフ中の項目があれば、その時刻にタイマーで再実行する
 // - 1 件以上送れたら listeners に知らせる（画面は router.refresh() でサーバーの最新に揃える）
 import { getDb, hasIndexedDb, outboxStore } from "../db";
+import { refreshCacheMeta, requestCacheImport, requestCacheImportWhenIdle } from "./cache-client";
 import { forRetry } from "./retry";
 import { createSender } from "./sender";
 import { runOutbox, type RunResult, type Sender } from "./worker";
@@ -68,6 +69,8 @@ export function requestSync(): Promise<RunResult> {
       running = null;
       state = { running: false, lastResult: result, lastRunAt: Date.now() };
       emit("finish");
+      // 送った行を読み取りのキャッシュにも入れる（2-9）
+      if (result.sent > 0) void requestCacheImport();
       if (runAgain) {
         runAgain = false;
         void requestSync();
@@ -98,17 +101,26 @@ export async function retryAllNeedingAttention(): Promise<RunResult> {
   return requestSync();
 }
 
-// 起動時・online・visibilitychange で同期する。SyncStatus（ヘッダ）が 1 回だけ登録する
+// 起動時・online・visibilitychange で同期する。SyncStatus（ヘッダ）が 1 回だけ登録する。
+// 読み取りのキャッシュの取り込み（2-9、cache-client.ts）も同じトリガーで走らせる（起動時はブラウザが空いてから）
 export function installSyncTriggers(): () => void {
   if (typeof window === "undefined") return () => {};
-  const onOnline = () => void requestSync();
+  const onOnline = () => {
+    void requestSync();
+    void requestCacheImport();
+  };
   const onVisible = () => {
-    if (document.visibilityState === "visible") void requestSync();
+    if (document.visibilityState !== "visible") return;
+    void requestSync();
+    void requestCacheImport();
   };
   window.addEventListener("online", onOnline);
   document.addEventListener("visibilitychange", onVisible);
   void requestSync();
+  void refreshCacheMeta().catch(() => null);
+  const cancelIdle = requestCacheImportWhenIdle();
   return () => {
+    cancelIdle();
     window.removeEventListener("online", onOnline);
     document.removeEventListener("visibilitychange", onVisible);
   };
