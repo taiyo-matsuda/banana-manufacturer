@@ -6,12 +6,17 @@ import { FIELD_HISTORY_LIMIT, type FieldDetailData } from "@/lib/fields/detail";
 import type { EventRow } from "@/lib/stems/records";
 import { createClient } from "@/lib/supabase/server";
 import { FieldDetailView } from "./field-detail-view";
+import { WeatherStatusSection } from "./weather-status";
+
+// 「気温を今すぐ取り込む」（3-1、weather-actions.ts）は 10 年分の平年値の材料を取ると十数秒かかる。
+// Server Action の時間制限はページの maxDuration で決まる（next/dist/docs の maxDuration）
+export const maxDuration = 60;
 
 // 圃場の詳細: 名前・記号・代表点・メモと地図への導線、編集（/fields/[fieldId]/edit、UX-2）への導線、
 // 施肥の一括入力（/fields/[fieldId]/fertilize、2-4）への導線。
 // 圃場の被害（2-5）の「被害を記録」と、保存後に株へ一括（/fields/[fieldId]/damage/[eventId]）への導線。
 // 圃場単位のイベント（target_type=field。圃場の被害など）は「圃場の記録」に新しい順で出す（株の記録・茎の履歴と同じ表示）。
-// 土壌分析の入力は後のタスクで追加する。
+// 気温の取り込みの状況（3-1、weather-status.tsx）。土壌分析の入力は後のタスクで追加する。
 // 表示は field-detail-view.tsx（オフラインの殻 2-9 と共通）。ここはサーバーでのデータの取得だけ。
 // params は Suspense の外で await しない（cacheComponents の静的シェル検証でビルドが落ちる）。
 export default function FieldDetailPage({ params }: { params: Promise<{ fieldId: string }> }) {
@@ -55,5 +60,13 @@ async function FieldDetail({ params }: { params: Promise<{ fieldId: string }> })
   }));
   const data: FieldDetailData = { field, history, historyError: fieldEventsError?.message ?? null };
 
-  return <FieldDetailView data={data} />;
+  return (
+    <>
+      <FieldDetailView data={data} />
+      {/* 気温の取り込みの状況（3-1）。オフラインの殻には出さないので FieldDetailView の外 */}
+      <Suspense fallback={<LoadingText>気温を読み込み中…</LoadingText>}>
+        <WeatherStatusSection fieldId={field.id} />
+      </Suspense>
+    </>
+  );
 }

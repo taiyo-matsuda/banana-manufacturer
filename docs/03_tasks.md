@@ -255,7 +255,7 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
 設計は `docs/02_design/prediction.md`。順序: 3-1 → 3-2 → 3-3 は必須の順序（気温がないと積算温度が出ず、積算温度がないと予測が出ない）。3-4 は 3-3 の後、3-5・3-6 は 3-4 の後。
 暫定の初期値は `01_requirements.md` 10 章の「ステップ 3 の暫定値」。すべて設定で変えられるようにし、実績で補正する。
 
-- [ ] **3-1 気温の取り込み**（prediction.md 1 章、architecture.md 5 章）
+- [x] **3-1 気温の取り込み**（prediction.md 1 章、architecture.md 5 章）
   - Open-Meteo から圃場の代表点（`weather_lat/lng` があればそれ）の時間別気温・降水・最大風速を取り込み、`weather_hourly` と `weather_daily`（日平均・最低・最高・降水）に保存。`temperature_offset_c` を加える
   - 取り込みは 1 日 1 回（Vercel Cron → Route Handler。認証はシークレットのヘッダ）。初回と取りこぼしは、圃場の登録日（または最も古い茎の `started_at`）まで遡って過去 API で埋める
   - 平年値の材料として、過去 10 年分の日別気温も同じ表に取り込む（`source` を分けるか、別表。3-2 で使う）

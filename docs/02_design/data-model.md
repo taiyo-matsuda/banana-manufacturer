@@ -30,7 +30,7 @@ cultivars（全組織で共有）
 
 | テーブル | コピー元 |
 |---|---|
-| mats, field_cultivar_params, soil_analyses, weather_* | fields |
+| mats, field_cultivar_params, soil_analyses, weather_*（weather_sync_status を含む） | fields |
 | stems | mats |
 | observations, estimates | stems |
 | soil_analysis_items | soil_analyses |
@@ -192,6 +192,30 @@ active / flowered ── damage(喪失) ──▶ lost
 ### weather_hourly / weather_daily
 - hourly: (field_id, ts, source) PK。temp_c, precip_mm, wind_max_ms
 - daily: (field_id, date, source) PK。t_mean, t_min, t_max, precip_mm, gdd（基準温度は品種で違うため t_mean も保持し、再計算できるようにする）
+- 3-1（`0018_weather_sync.sql`）で追加した列（hourly / daily 共通）:
+  - `api`（`forecast` / `archive`）: Open-Meteo のどの API の値か。**1 日 1 行（`source = 'open-meteo'`）で、予報 API の暫定値を後日 過去 API の確定値で upsert して上書きする**（`source` は分けない。読む側は日付で 1 行を引けばよい）。`forecast` の行は「まだ確定していない」印で、確定値が出る 5 日を過ぎたら過去 API で取り直す
+  - `temperature_offset_c`: 保存した気温に加えた圃場の補正（取得時の `fields.temperature_offset_c`）。**保存値 = Open-Meteo の値 + この補正**。補正が今の圃場の値と違う行は、次の取り込みで取り直す
+  - `fetched_at`: 取得した日時
+  - daily の `wind_max_ms`: 時間別の風速（10m、m/s）の日最大
+- 日次は時間別から集計する（`src/lib/weather/aggregate.ts`）: 日平均（24 時間の平均）・最低・最高・降水合計・最大風速。日付の境界は Asia/Tokyo（Open-Meteo に `timezone=Asia/Tokyo`）。気温が 24 時間そろわない日は保存しない。`gdd` は 3-1 では入れない（基準温度が品種ごとなので 3-2 で `t_mean` / 時間別から計算する）
+- 何を保存するか（`src/lib/weather/plan.ts`）:
+  - 日次: 平年値の材料（今年 1/1 の 10 年前 〜 昨年末。圃場あたり約 3,650 行）＋ 埋めるべき期間（圃場の登録日と最も古い茎の `started_at` の早い方 〜 昨日）＋ 直近 7 日（予報 API）
+  - 時間別: 埋めるべき期間と直近 7 日だけ（10 年分は日次だけ）
+  - 取り込みのたびに、上の期間で確定値（`api = archive`、補正が一致）のない日を探し、まとめて過去 API で取る（失敗した日は次回の対象に残る）
+- 代表点（`weather_lat/lng`、なければ `center_lat/lng`）が前回の取り込みと変わっていたら、その圃場の weather_* を消して取り直す（外部の値なので「追記のみ」の対象ではない）
+
+### weather_sync_status（3-1、0018）
+圃場ごとの気温の取り込みの記録。PK `field_id`（fields を on delete cascade）。organization_id は fields からトリガーでコピー。
+| 列 | 備考 |
+|---|---|
+| last_run_at | 最後に取り込みを実行した日時 |
+| last_days | その回に保存した日別の行数（日付の数。予報と過去の両方で書いた日も 1 日） |
+| last_error | その回の失敗の要約（API・理由・欠けた日数。`src/lib/weather/summary.ts`。期間ごとの詳細はサーバーのログ）。なければ null |
+| last_success_at, last_success_days | 最後に成功した回（エラーなし、または 1 日以上保存できた回）の日時と保存した日数（0019）。画面の「最終取得」はこれ |
+| lat, lng | 前の地点の値を消し終えた（または変更がなかった）座標（代表点の変更の検出）。変更を確かめられなかった・消せなかった回は前の値のまま（record_weather_sync に null を渡す。0019） |
+| updated_at | |
+
+RLS は自組織の select のみ。書き込みは security definer の `record_weather_sync()` だけ（呼べるのはその圃場の組織のユーザーか service_role）。
 
 ### estimates
 | 列 | 型 | 備考 |
@@ -236,7 +260,8 @@ active / flowered ── damage(喪失) ──▶ lost
 | organizations | 自組織 | × | × | × |
 | profiles | 自組織 | × | × | × |
 | cultivars | 全員 | × | × | × |
-| fields, field_cultivar_params, soil_*, mats, stems, weather_*, estimates, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| fields, field_cultivar_params, soil_*, mats, stems, weather_hourly, weather_daily, estimates, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| weather_sync_status | 自組織 | ×（record_weather_sync() のみ） | 同左 | × |
 | observations, events | 自組織 | 自組織 | superseded_by のみ（トリガーで制限） | × |
 | photos | 自組織 | 自組織 | 自組織（upload_status の更新） | × |
 

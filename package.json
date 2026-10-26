@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "weather:sync": "node scripts/weather-sync.mjs",
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {

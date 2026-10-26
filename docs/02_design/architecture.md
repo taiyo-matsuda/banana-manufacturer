@@ -14,7 +14,7 @@ iPhone / PC のブラウザ
        │  Service Worker                 └ Storage (写真)
        └ MapLibre ── 地理院タイル（空中写真）
 
-Supabase の定期ジョブ (pg_cron) / Next.js の Route Handler
+Vercel Cron → Next.js の Route Handler（/api/cron/weather、3-1）
   └ Open-Meteo から気象を取得 → weather_hourly / weather_daily
   └ 推定・提案の再計算
 ```
@@ -35,6 +35,10 @@ Supabase の定期ジョブ (pg_cron) / Next.js の Route Handler
 - **Cloudflare Access** でサイト全体を保護する。許可メールアドレス以外にはログイン画面すら表示されない。
 - ユーザーは `profiles` で組織に紐づく。`current_org()` 関数がログイン中ユーザーの組織を返し、すべての RLS ポリシーがこれを使う。
 - 将来: 招待制（管理者が招待メールを送る）、スタッフ権限（`profiles.role`）。
+- **service_role（Secret key）はアプリに置かない。例外は気温の日次取り込み（3-1）の Cron の Route Handler `src/app/api/cron/weather/route.ts` だけ**。全組織の圃場を処理するため RLS を通らないクライアントが要る。
+  - キーはサーバー側の環境変数 `SUPABASE_SERVICE_ROLE_KEY` からだけ読む（`NEXT_PUBLIC_` を付けない。ブラウザのバンドルに入らない）。読むのは `import "server-only"` を付けた `src/lib/supabase/service-role.ts` だけで、これを import するのは Cron の Route Handler だけ（画面・Server Action・クライアントのコードからは import しない）
+  - Route Handler の認証は `Authorization: Bearer ${CRON_SECRET}`（Vercel Cron の標準）。`CRON_SECRET` が未設定・ヘッダが無い・違うなら 401。proxy は `/api/cron/weather` を /login に転送しない（`src/lib/auth/redirect.ts` の PUBLIC_PATHS。Cron は Cookie を持たない）
+  - 圃場の登録時・代表点の変更時（Server Action の `after()`）と、圃場の詳細の「気温を今すぐ取り込む」は、ログイン中のユーザーのクライアント（RLS で自組織の圃場だけ）で取り込む。service_role は使わない
 
 ## 3. データ分離（複数農家対応）
 
@@ -51,10 +55,15 @@ Supabase の定期ジョブ (pg_cron) / Next.js の Route Handler
 
 ## 5. 気象の取り込み
 
-- 1日1回、圃場ごとに Open-Meteo から前日分の時間別データ（気温・降水・風速）を取得して `weather_hourly` に入れ、`weather_daily` に集計する。
-- 実行は Supabase の pg_cron ＋ `pg_net`（HTTP 呼び出し）、または Vercel Cron から Route Handler を叩く。MVP では後者（デバッグしやすい）。
-- 初回は圃場の登録日から遡って取得する（Open-Meteo の過去データ API）。
-- `fields.temperature_offset_c` を加算してから保存する。
+- 1日1回、圃場ごとに Open-Meteo から時間別データ（気温・降水・風速）を取得して `weather_hourly` に入れ、`weather_daily` に集計する。保存の約束（`api` 列で暫定値／確定値を区別し upsert で上書き、補正の記録）は `data-model.md` の weather_hourly / weather_daily。
+- 実行は Vercel Cron から Route Handler `/api/cron/weather` を GET で叩く（`vercel.json` の `crons`、`0 20 * * *` = 日本時間 5:00。Hobby は 1 日 1 回まで）。手動は `npm run weather:sync`（`.env.local` の `CRON_SECRET` で同じエンドポイントを叩く。`--field <id>` で 1 圃場、`--url` で叩く先）。
+- API: 予報 API（`https://api.open-meteo.com/v1/forecast`、`past_days=7`）で直近 7 日、過去 API（`https://archive-api.open-meteo.com/v1/archive`）で 5 日より前の確定値。`hourly=temperature_2m,precipitation,wind_speed_10m`、`wind_speed_unit=ms`、`timezone=Asia/Tokyo`。API キー不要。取得は `src/lib/weather/`（fetch を注入できる形）。
+- 取り込みのたびに、圃場の「埋めるべき開始日（登録日と最も古い茎の `started_at` の早い方）〜 昨日」と平年値の材料（過去 10 年分、日次だけ）で確定値のない日を探し、まとめて過去 API で取る。API が失敗した日は次回の対象に残る（欠けた日が埋まる）。
+- 1 回の Cron は約 50 秒で打ち切り（`maxDuration = 60`）、残りは次回に続きから。前回の実行が古い圃場から処理する。過去 API は新しい日から取る。
+- 圃場の登録・代表点の変更: Server Action が `after()` で、応答を返した後にその圃場の取り込みを始める（登録の応答を遅くしない）。ここでは埋めるべき期間と直近 7 日だけ取り、10 年分の平年値の材料は次の Cron（または圃場の詳細の「気温を今すぐ取り込む」）で取る。代表点が変わっていたら前の地点の値を消して取り直す。
+- 取り込みの記録（最終実行・件数・最後のエラー）は `weather_sync_status`。圃場の詳細に「気温: 最終取得 ◯月◯日 ◯:◯◯（◯日分）」、失敗の理由、未取得なら「取り込み待ち」。
+- `fields.temperature_offset_c` を加算してから保存する（加えた値は各行の `temperature_offset_c` に残る）。
+- E2E: 開発サーバーを `WEATHER_MOCK=1` で起動すると Open-Meteo の代わりにモック（`src/lib/weather/mock.ts`）を使う。`NODE_ENV=production`・Vercel では環境変数があっても効かない（`src/lib/weather/server.ts`）。失敗は Cookie / ヘッダ `e2e-weather-fault`（モックのときだけ読む）で起こす。
 
 ## 6. 推定と提案の計算
 
@@ -77,7 +86,12 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY   # Publishable key（公開用）。service_role / Secret key は絶対に置かない
 E2E_EMAIL / E2E_PASSWORD        # テスト農園 A
 E2E_B_EMAIL / E2E_B_PASSWORD    # テスト農園 B
+CRON_SECRET                     # 気温の日次取り込み（3-1）の Cron のシークレット。Vercel の環境変数にも同じ値
+SUPABASE_SERVICE_ROLE_KEY       # service_role。Cron の Route Handler だけが使う（2 章の例外）。NEXT_PUBLIC_ を付けない
 ```
+
+- `SUPABASE_SERVICE_ROLE_KEY` と `CRON_SECRET` は Vercel の環境変数（Production）にも設定する。service_role は気温の日次取り込みの Cron の Route Handler だけの例外（2 章）。
+- E2E: `playwright.config.ts` が開発サーバーを `WEATHER_MOCK=1` で起動し、`CRON_SECRET` が `.env.local` に無ければ E2E 用の値を渡す。`SUPABASE_SERVICE_ROLE_KEY` が `.env.local` に無ければ、Cron の Route Handler を叩く E2E（weather.spec の Cron の 2 回実行）はスキップする（401 の検証と、ユーザーの権限で走る取り込みの検証は鍵がなくても走る）。E2E の Cron は `?fieldId=` でテスト用の圃場だけを処理する（本番の圃場と同居しているため）。
 
 ## 8. ディレクトリ
 

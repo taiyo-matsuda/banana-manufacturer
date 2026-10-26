@@ -5,7 +5,9 @@ export const LOGIN_PATH = "/login";
 
 // 認証なしで開けるパス。/offline は Service Worker が圏外時に返す案内ページ（1-10）、/offline-shell はオフラインの殻（2-9）で、
 // どちらも install 時に（認証に関係なく）プリキャッシュできる必要がある。殻はサーバーでデータを読まない（端末のキャッシュだけ）。
-export const PUBLIC_PATHS: readonly string[] = ["/offline", "/offline-shell"];
+// /api/cron/weather は気温の日次取り込み（3-1）。Vercel Cron は Cookie を持たないので /login に転送しない。
+// 認証は Route Handler 自身が Authorization: Bearer ${CRON_SECRET} で行う（無い・違うなら 401）。
+export const PUBLIC_PATHS: readonly string[] = ["/offline", "/offline-shell", "/api/cron/weather"];
 
 export function resolveAuthRedirect(
   pathname: string,

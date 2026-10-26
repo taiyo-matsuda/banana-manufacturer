@@ -8,7 +8,7 @@
 
 ## 1. 積算温度（GDD）
 
-- 入力: `weather_daily`（圃場ごと）、基準温度 `base_temp_c`（品種、圃場×品種で上書き可。既定 14℃）
+- 入力: `weather_daily`（圃場ごと。3-1 で取り込み、1 日 1 行。気温は圃場の補正を加えた値。data-model.md）、基準温度 `base_temp_c`（品種、圃場×品種で上書き可。既定 14℃）
 - 日次 GDD = max(0, t_mean − base_temp)
   - `weather_hourly` があるときは、時間別に max(0, temp − base) を平均した値を使う（冬の日較差が大きい日に精度が上がる）
 - 期間の積算 = 開始日の翌日から終了日までの日次 GDD の合計

@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh, revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -10,6 +11,7 @@ import {
   uniqueViolationMessage,
   validateFieldInput,
 } from "@/lib/fields/validation";
+import { syncWeatherInBackground } from "@/lib/weather/user-sync";
 
 // "use server" のファイルは async 関数しか export できないので、型や定数は lib に置く
 
@@ -40,9 +42,11 @@ export async function createField(
 
   const { name, code, centerLat, centerLng, notes } = validation.value;
   // organization_id は渡さない。fields は列の既定値 current_org() で DB が設定する（0004）
-  const { error } = await supabase
+  const { data: created, error } = await supabase
     .from("fields")
-    .insert({ name, code, center_lat: centerLat, center_lng: centerLng, notes });
+    .insert({ name, code, center_lat: centerLat, center_lng: centerLng, notes })
+    .select("id")
+    .single();
 
   if (error) {
     const message = uniqueViolationMessage(error);
@@ -57,6 +61,10 @@ export async function createField(
       succeeded: prev.succeeded,
     };
   }
+
+  // 気温の取り込み（3-1）: 登録日（または最も古い茎）以降と直近の日を、応答を返した後に取る（登録の応答を遅くしない）。
+  // 10 年分の平年値の材料は次回の日次の取り込み（Cron）か、圃場の詳細の「今すぐ取り込む」で取る
+  after(() => syncWeatherInBackground(supabase, created.id));
 
   // 一覧を最新にする（一覧はキャッシュしていないので refresh でよい）
   refresh();
@@ -91,6 +99,12 @@ export async function updateField(
   if (!validation.ok) return fail(null, validation.errors);
 
   const { name, code, centerLat, centerLng, notes } = validation.value;
+  // 代表点が変わったかを見るため、更新前の代表点を読む（RLS で自組織の行だけ）
+  const { data: before } = await supabase
+    .from("fields")
+    .select("center_lat, center_lng")
+    .eq("id", fieldId)
+    .maybeSingle();
   const { data: updated, error } = await supabase
     .from("fields")
     .update({ name, code, center_lat: centerLat, center_lng: centerLng, notes })
@@ -105,6 +119,11 @@ export async function updateField(
   }
   // RLS で見えない（他組織・削除済み）なら 0 行
   if (!updated) return fail("圃場が見つかりません");
+
+  // 代表点が変わったら気温を取り直す（3-1。前の地点の値は取り込みの中で消す）。応答を返した後に走らせる
+  if (before && (Number(before.center_lat) !== centerLat || Number(before.center_lng) !== centerLng)) {
+    after(() => syncWeatherInBackground(supabase, fieldId));
+  }
 
   // 圃場の名前・記号は一覧・詳細・地図のヘッダ・株の詳細（地図への導線）に出る。
   // revalidatePath を Server Action で呼ぶと、ルーターに残っている訪問済みの画面も次に開いたとき取り直す

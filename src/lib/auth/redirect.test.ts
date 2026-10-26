@@ -34,4 +34,9 @@ describe("resolveAuthRedirect（公開パス）", () => {
     expect(resolveAuthRedirect("/offline-shell", true)).toBeNull();
     expect(resolveAuthRedirect("/offline-shell/x", false)).toBe("/login");
   });
+  it("気温の日次取り込み（3-1）/api/cron/weather は未ログインでも転送しない（Route Handler がシークレットで認証する）。下のパスは公開しない", () => {
+    expect(resolveAuthRedirect("/api/cron/weather", false)).toBeNull();
+    expect(resolveAuthRedirect("/api/cron/weather/x", false)).toBe("/login");
+    expect(resolveAuthRedirect("/api/cron", false)).toBe("/login");
+  });
 });

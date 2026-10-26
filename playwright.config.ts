@@ -6,6 +6,11 @@ import { AUTH_STATE_A } from "./e2e/helpers";
 // E2E 用の環境変数（Supabase の URL / key、テスト用アカウント A / B）を .env.local から読む
 loadEnv({ path: path.resolve(__dirname, ".env.local") });
 
+// 気温の取り込み（3-1）: Cron の Route Handler のシークレット。.env.local に無ければ E2E の開発サーバー用の値を使う
+// （下の webServer.env で開発サーバーにも同じ値を渡す。テストは process.env.CRON_SECRET を読む）。
+// SUPABASE_SERVICE_ROLE_KEY は .env.local にあるときだけ開発サーバーが読む（無ければ Cron を叩く E2E はスキップ）。
+process.env.CRON_SECRET ??= "e2e-local-cron-secret";
+
 // E2E テスト。レビュー用サブエージェントが実行し、合格したときだけ次のタスクに進む。
 // 対象は iPhone の PWA なので、モバイル Safari 相当のビューポートを既定にする。
 export default defineConfig({
@@ -54,5 +59,9 @@ export default defineConfig({
     url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
     timeout: 120_000,
+    // WEATHER_MOCK=1: 気温の取り込みは Open-Meteo ではなくモック（src/lib/weather/mock.ts）を使う。
+    // 開発サーバー（NODE_ENV=development）でだけ効く（src/lib/weather/server.ts）。本番の挙動は変わらない。
+    // 既に起動している開発サーバーを再利用したときはこの env は渡らない（weather.spec が検出して失敗させる）
+    env: { WEATHER_MOCK: "1", CRON_SECRET: process.env.CRON_SECRET },
   },
 });

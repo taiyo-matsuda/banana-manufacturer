@@ -39,7 +39,7 @@ Supabase（本番プロジェクト: Auth / PostgreSQL / Storage）
 6. **Project Settings → API** から次を控える（アプリの環境変数になる）:
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
    - Publishable（anon）key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - **service_role / Secret key は Vercel にも `.env` にも置かない。**
+   - service_role（Secret key）→ `SUPABASE_SERVICE_ROLE_KEY`。**使ってよいのは気温の日次取り込み（3-1）の Cron の Route Handler だけ**（architecture.md 2 章の例外）。Vercel のサーバー側の環境変数にだけ置き、`NEXT_PUBLIC_` を付けない。それ以外の用途には置かない
 
 ## 2. Vercel
 
@@ -50,8 +50,12 @@ Supabase（本番プロジェクト: Auth / PostgreSQL / Storage）
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | 本番 Supabase の Project URL |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 本番 Supabase の Publishable key |
+   | `SUPABASE_SERVICE_ROLE_KEY` | 本番 Supabase の service_role（Secret key）。気温の Cron（`/api/cron/weather`）だけが使う |
+   | `CRON_SECRET` | 任意の長いランダム文字列（16 文字以上）。Vercel Cron が `Authorization: Bearer` で送り、Route Handler が照合する |
 
-   `E2E_*` は本番には不要。
+   `E2E_*` は本番には不要。`WEATHER_MOCK` は設定しない（設定しても本番では効かない）。
+   気温の Cron は `vercel.json` の `crons`（`0 20 * * *` = 日本時間 5:00）。デプロイ後 **Settings → Cron Jobs** に `/api/cron/weather` が出ることを確認し、「Run」で手動実行してログが 200 になることを確かめる（Cloudflare Access が Cron の呼び出しを止めていないかもここで確認する。止まる場合は `/api/cron/weather` を Access のバイパスに入れる。認証は Route Handler の `CRON_SECRET` が担う）。
+   **service_role で動く Cron の経路は E2E で検証していない**（E2E の `.env.local` に service_role の鍵がない場合、weather.spec の Cron のテストはスキップされる）。初回のデプロイ後に必ず 1 回、Vercel の「Run」または `npm run weather:sync -- --url https://<本番ドメイン>` で実行し、応答の `results` にエラーがないこと、圃場の詳細に「気温: 最終取得 …」が出ることを確かめる。
 3. デプロイして、`https://<プロジェクト>.vercel.app` でログイン画面が出ることを確認する（この時点ではまだ誰でも開ける。独自ドメイン ＋ Access を設定したら、Vercel の既定ドメインは使わない）。
 4. **Settings → Domains** に独自ドメイン `<本番ドメイン>` を追加する。Vercel が示す DNS レコード（CNAME `cname.vercel-dns.com`、または A レコード）を控える。
 
