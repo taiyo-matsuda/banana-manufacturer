@@ -106,6 +106,9 @@ Supabase（`npx supabase start` / `db reset`。マイグレーションはシー
 
 ### field_cultivar_params
 PK (field_id, cultivar_id)。`cultivars` の各値を上書きする nullable 列を持つ。
+- 3-2（`0020_gdd_params.sql`）: null は「品種の既定を使う」。範囲の検査 `base_temp_c` 5〜20℃、`flowering_to_harvest_gdd` 100〜5,000 ℃・日。`updated_at` は更新のたびに now()（`set_updated_at()`）。`field_id` を書き換える更新でも organization_id を圃場から取り直す（他組織の圃場へ付け替えられない）
+- 書くのは圃場の詳細の「予測の設定」（圃場 × 品種の upsert。organization_id は渡さない）。RLS は 0001 の `fcp_all`（自組織だけ読み書き）
+- これは設定（パラメータ）で、観測・イベントではないので上書きしてよい
 
 ### soil_analyses / soil_analysis_items
 - soil_analyses: id, organization_id, field_id, sampled_at, source_photo_id（任意）, note
@@ -214,6 +217,8 @@ active / flowered ── damage(喪失) ──▶ lost
   - 日次: 平年値の材料（今年 1/1 の 10 年前 〜 昨年末。圃場あたり約 3,650 行）＋ 埋めるべき期間（圃場の登録日と最も古い茎の `started_at` の早い方 〜 昨日）＋ 直近 7 日（予報 API）
   - 時間別: 埋めるべき期間と直近 7 日だけ（10 年分は日次だけ）
   - 取り込みのたびに、上の期間で確定値（`api = archive`、補正が一致）のない日を探し、まとめて過去 API で取る（失敗した日は次回の対象に残る）
+- `weather_hourly_days`（ビュー、3-2・0020）: 時間別を日本時間の日付ごとに 1 行（`field_id, source, date, temps`（気温の配列、時刻順・null を除く）、`hours`（行数））。`security_invoker` なので weather_hourly の RLS がそのまま効く。積算温度の計算で、期間の時間別を max_rows（1000）に当たらずに読むため
+- `gdd` 列は 3-2 でも使わない（基準温度が圃場 × 品種で変わるので、読むたびに `src/lib/gdd.ts` で計算する）
 - 代表点（`weather_lat/lng`、なければ `center_lat/lng`）が前回の取り込みと変わっていたら、その圃場の weather_* を消して取り直す（外部の値なので「追記のみ」の対象ではない）
 
 ### weather_sync_status（3-1、0018）

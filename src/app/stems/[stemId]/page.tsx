@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
-import { loadStem } from "./load";
+import { loadStemRecord } from "./load";
 import { StemRecordClient } from "./stem-record-client";
 
 // 画面 4「茎の記録入力」（現場の主画面）: ヘッダ（株コード・世代・状態・累計葉数・検算の警告）、
@@ -26,10 +26,10 @@ export default function StemPage({ params }: { params: Promise<{ stemId: string 
 
 async function StemRecord({ params }: { params: Promise<{ stemId: string }> }) {
   const { stemId } = await params;
-  const stem = await loadStem(stemId);
+  const { stem, gdd } = await loadStemRecord(stemId);
   return (
     <AppScreen title="茎の記録" backHref={`/mats/${stem.mat.id}`} backLabel={`株 ${stem.mat.code}`} current="map">
-      <StemRecordClient stem={stem} />
+      <StemRecordClient stem={stem} gdd={gdd} />
     </AppScreen>
   );
 }

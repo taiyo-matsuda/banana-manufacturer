@@ -8,6 +8,7 @@ import type { StemView } from "@/lib/stems/view";
 import { EventRecord } from "./event-record";
 import { LeafRecord } from "./leaf-record";
 import { PhotoCapture } from "./photo-capture";
+import { StemGddSection, type StemGddProp } from "./stem-gdd";
 import { StemHeader } from "./stem-header";
 import { StemHistory } from "./stem-history";
 import { useStemOverlay } from "./use-stem-overlay";
@@ -16,12 +17,17 @@ import { useStemOverlay } from "./use-stem-overlay";
 // この茎の未送信分を重ねて表示する（累計葉数・検算・履歴・見かけの状態・記録ボタンの可否。use-stem-overlay.ts）。
 // 記録は outbox に積むだけ（enqueue）。同期が終わると SyncStatus が router.refresh() し、props がサーバーの最新になる。
 // オフラインの殻（2-9、src/app/offline-shell/）も、端末のキャッシュから組み立てた同じ形の stem でこれを描く。
-export function StemRecordClient({ stem }: { stem: StemView }) {
+// gdd: 3-2 の積算温度（サーバーで計算）。オフラインの殻は "offline"（気温はキャッシュしないので理由を出す）
+export function StemRecordClient({ stem, gdd }: { stem: StemView; gdd: StemGddProp }) {
   const { view, pendingCount } = useStemOverlay(stem);
 
   return (
     <article className="flex flex-col gap-4" data-testid="stem-record" data-pending-count={pendingCount}>
       <StemHeader stem={view} />
+      <StemGddSection
+        gdd={gdd}
+        budEmerged={view.events.some((e) => e.type === "bud_emerged" && e.superseded_by === null)}
+      />
 
       {view.canRecord ? (
         <>
