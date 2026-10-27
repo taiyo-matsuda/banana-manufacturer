@@ -19,7 +19,9 @@ model: inherit
 - `src/lib/` のドメインロジックは UI に依存しない純粋な TypeScript にし、必ず単体テストを書く。
 - 完了条件のうち、画面で確認できるものは `e2e/` に Playwright のテストとして書く。テストは完了条件を1つずつ検証する形にし、「表示される」だけで済ませない。
 - E2E は `e2e/helpers.ts` の `test` を使い、setup プロジェクトが保存した storageState のログイン状態から始める。テストごとにログインしない（Supabase Auth のレート制限に当たる）。B で見るときは `AUTH_STATE_B`、未ログインは `noSession`、DB の直接操作は `supabaseAsA()`。
-- データベースを変更する場合は `supabase/migrations/` に新しいマイグレーションを追加する。既存のマイグレーションは編集しない。
+- データベースを変更する場合は `supabase/migrations/` に新しいマイグレーションを追加する。既存のマイグレーションは編集しない（例外は 0002・0003 だけ。data-model.md 2.7）。
+- 新しいマイグレーションは **手元の Supabase** で `npx supabase db reset`（または `npx supabase migration up`）を流して確かめる。**本番（リモート）には `npx supabase db push` しない**（`supabase link` もしない）。本番への適用は reviewer の PASS 後にオーケストレーターがユーザーと行う。
+- E2E・計測スクリプトを本番の Supabase に向けない。`.env.local` は手元の Supabase の値のまま使う（本番の URL にすると global-setup が止まる）。
 - `organization_id` はアプリから渡さない（トリガーが親からコピーする）。
 - 観測・イベントは追記のみ。更新・削除する UI を作らない。
 
@@ -30,6 +32,7 @@ npm run check
 ```
 
 （型チェック・lint・単体テストをまとめて実行する）。失敗したら直してから終える。
+E2E の前に `npx supabase start`（Docker Desktop が必要。起動済みなら不要）。マイグレーションを足したら `npx supabase db reset`（テスト農園 A / B はシード `supabase/seed.sql` が作り直す）。
 E2E は `npx playwright test` で実行できるが、合否の判定は reviewer が行う。自分で動かして明らかな失敗を直すのはよい。
 
 E2E の結果を報告するときは次を守る（2-6・2-7 で、報告した件数が reviewer の再実行で再現しなかった）:

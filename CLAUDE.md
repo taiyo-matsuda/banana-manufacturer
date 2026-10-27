@@ -63,8 +63,15 @@
 オーケストレーター（メインのセッション）は実装もレビューもせず、タスクの受け渡しと判定の記録だけを行う。
 
 検証コマンド:
-- `npm run check` — 型チェック・lint・単体テスト
-- `npm run e2e` — Playwright（iPhone 相当と PC の2プロジェクト。開発サーバーは自動起動）
+- `npm run check` — 型チェック・lint・単体テスト（Supabase 不要）
+- `npm run e2e` — Playwright（iPhone 相当と PC の2プロジェクト。開発サーバーは自動起動）。**E2E の前に `npx supabase start`（Docker Desktop が必要）。** 初回とマイグレーションを足した後は `npx supabase db reset`（マイグレーション＋ `supabase/seed.sql` のテスト農園 A / B）
+
+## 手元の Supabase（0-3 以降。必ず守る）
+
+- 開発（`npm run dev`）と E2E は **手元の Supabase**（`npx supabase start`、`http://127.0.0.1:54321`）を使う。`.env.local` は手元の値（`npx supabase status`）。本番の値は Vercel の環境変数にだけ置く（控えは `.env.remote.local`、コミットしない）。
+- **本番（リモート）の Supabase に E2E・計測スクリプト・`supabase db push` をタスク用のセッションから向けない。** `e2e/global-setup.ts` は URL が手元でなければ止まる。本番のデータを見たいときは Vercel の本番で見る。
+- 新しいマイグレーションはまず手元で `npx supabase db reset`（または `npx supabase migration up`）で確かめる。本番への適用（`npx supabase db push`）は reviewer の PASS 後に、オーケストレーターがユーザーと行う（手順は `docs/04_ops/deploy.md`）。
+- 既存のマイグレーションは編集しない。例外は 0002・0003 だけ（手元に auth ユーザーがないため。`data-model.md` 2.7）。
 
 ## 開発ステップ（現在: ステップ 2 完了。ステップ 3「予測と提案」のタスク分割待ち）
 

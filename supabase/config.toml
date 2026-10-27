@@ -161,7 +161,8 @@ site_url = "http://127.0.0.1:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# 手元の開発サーバーは http://127.0.0.1:3000（playwright.config.ts の baseURL と同じ）
+additional_redirect_urls = ["http://127.0.0.1:3000", "http://127.0.0.1:3000/**", "http://localhost:3000/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -174,7 +175,8 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# 本番と同じく Sign Up は無効（手元のアカウントは supabase/seed.sql が作る）
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -203,9 +205,11 @@ sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
 anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
-token_refresh = 150
+# 手元では E2E を続けて流すので緩める（本番の値はダッシュボード側の設定で、この値は効かない）
+token_refresh = 1000
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+# 手元では E2E を続けて流してもサインインがレート制限に当たらないように緩める
+sign_in_sign_ups = 1000
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
@@ -219,6 +223,9 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
+# 注意: Supabase CLI はこの値をメールのプロバイダの有効・無効（GOTRUE_EXTERNAL_EMAIL_ENABLED）に使うので、false にすると
+# メール＋パスワードのログイン自体ができなくなる（"Email logins are disabled"）。true のままにし、Sign Up の無効化は
+# [auth] の enable_signup = false（GOTRUE_DISABLE_SIGNUP）で行う（/auth/v1/signup は "Signups not allowed" になる）
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.

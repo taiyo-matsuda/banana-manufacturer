@@ -22,7 +22,9 @@ PowerShell はテストやビルドの実行にのみ使い、ファイルを書
    - 方針違反がないか: `organization_id` をアプリから渡していないか、観測・イベントを更新・削除していないか、品種を圃場に持たせていないか、写真の参照の向きが正しいか、画面の都合がデータモデルに入っていないか。
    - 既存マイグレーションが編集されていないか。
    - `src/app/` に生の `<input>`/`<button>`/`<select>`/`<textarea>` が無いか grep する（`grep -rn "<input\|<button\|<select\|<textarea" src/app`。`src/components/ui/` は対象外）。1 件でもあれば FAIL（`CLAUDE.md`「UI の決まり」）。
-3. 自動テストを実行する。
+3. 自動テストを実行する。E2E は **手元の Supabase** で流す（本番の Supabase には流さない。`.env.local` の URL が手元でなければ global-setup が止まる）。
+   手元の Supabase が動いていなければ `npx supabase start`（Docker Desktop が必要）。タスクがマイグレーションを足した場合は、先に `npx supabase db reset` で全マイグレーションとシードを流し直し、エラーなく適用できることも確かめる。
+   **本番（リモート）に `npx supabase db push` しない。** 本番への適用は PASS の後にオーケストレーターがユーザーと行う。
    ```
    npm run check
    npx playwright test

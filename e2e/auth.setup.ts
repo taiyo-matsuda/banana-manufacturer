@@ -84,7 +84,11 @@ async function saveApiSession(email: string, password: string, path: string) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error || !data.session) throw new Error(`${email} で API サインインできません: ${error?.message}`);
+  if (error || !data.session) {
+    throw new Error(
+      `${email} で API サインインできません: ${error?.message}（手元の Supabase にシードのユーザーがいなければ npx supabase db reset）`,
+    );
+  }
   writeFileSync(
     path,
     JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token }),

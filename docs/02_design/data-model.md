@@ -55,6 +55,18 @@ cultivars（全組織で共有）
 MVP では `lat` / `lng` の数値列。PostGIS は使わない（必要になったら移行）。
 `fields.boundary` は GeoJSON を jsonb で持つ（後回し）。
 
+### 2.7 マイグレーションの扱い
+既存のマイグレーションは編集しない（変更は新しいマイグレーションを追加する）。新しいマイグレーションはまず手元の Supabase
+（`npx supabase db reset`）で確かめ、本番への適用（`npx supabase db push`）は reviewer の PASS 後にオーケストレーターがユーザーと行う
+（`docs/04_ops/deploy.md`）。
+
+**例外: `0002_initial_org.sql`・`0003_test_orgs.sql`（タスク 0-3 で編集）。** どちらも環境固有のデータ（本番のオーナー、
+E2E のテストユーザー）の `profiles` 行を入れるが、`profiles.id` は `auth.users` への FK なので、そのユーザーがいない手元の
+Supabase（`npx supabase start` / `db reset`。マイグレーションはシードより先に走る）では FK 違反で失敗し、以降が適用できなかった。
+そのためこの 2 本に限り、`insert ... select ... where exists (select 1 from auth.users where id = ...)` の形にし、ユーザーがいない
+環境では何もしないように直した。組織の行は FK がないのでそのまま入る。手元のテスト農園 A / B の auth ユーザーと `profiles` は
+シード `supabase/seed.sql` が作る（`on conflict do nothing` で重複しない）。リモート（本番）では適用済みで再実行されないので影響しない。
+
 ## 3. テーブル
 
 ### organizations

@@ -4,6 +4,7 @@
 この文書は、実際にデプロイするときに上から順に行う手順書。設定はユーザー（管理者）が各サービスのダッシュボードで行う。
 
 **ローカル開発と E2E では Cloudflare Access は不要。** `npm run dev` は 127.0.0.1 で動き、認証は Supabase Auth だけで行う。
+**ローカル開発と E2E は手元の Supabase（`npx supabase start`）を使い、本番の Supabase には繋がない**（architecture.md 7 章）。本番の Supabase の URL・鍵は Vercel の環境変数にだけ置く（手元の控えは `.env.remote.local`。コミットしない）。
 
 ## 全体像
 
@@ -29,7 +30,9 @@ Supabase（本番プロジェクト: Auth / PostgreSQL / Storage）
 
 1. 本番用の Supabase プロジェクトを作る（開発用・E2E 用とは分ける）。
 2. `supabase/migrations/` を順に適用する（`supabase db push`、または SQL エディタで `0001` から順に実行）。
-   - `0003_test_orgs.sql`（テスト農園 A / B）と `0006_e2e_cleanup.sql`（E2E の掃除関数）は E2E 用。本番に入れる必要はない。
+   - `0003_test_orgs.sql`（テスト農園 A / B）と `0006_e2e_cleanup.sql`（E2E の掃除関数）は E2E 用。本番に入れる必要はない（E2E は手元の Supabase で流す。現在の本番には過去に E2E を流していた頃の適用が残っている）。
+   - `0002`・`0003` の `profiles` は、`auth.users` にそのユーザーがいるときだけ入る（いなければ何もしない。data-model.md 2.7）。新しく本番を作るときは、5. でユーザーを作った後に `profiles` を入れる。
+   - `supabase/seed.sql` は手元専用。`supabase db push` はシードを流さない（`--include-seed` を付けない）。
 3. **Authentication → Providers → Email**: "Allow new users to sign up" を **オフ**（セルフ Sign Up を無効化）。
 4. **Authentication → URL Configuration**:
    - Site URL: `https://<本番ドメイン>`
@@ -40,6 +43,22 @@ Supabase（本番プロジェクト: Auth / PostgreSQL / Storage）
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
    - Publishable（anon）key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - service_role（Secret key）→ `SUPABASE_SERVICE_ROLE_KEY`。**使ってよいのは気温の日次取り込み（3-1）の Cron の Route Handler だけ**（architecture.md 2 章の例外）。Vercel のサーバー側の環境変数にだけ置き、`NEXT_PUBLIC_` を付けない。それ以外の用途には置かない
+
+### 1.1 新しいマイグレーションを本番に適用する（タスクの PASS 後）
+
+タスク用のセッション（implementer / reviewer）は本番に push しない。新しいマイグレーションは次の順で入れる。
+
+1. implementer が `supabase/migrations/` に追加し、手元で `npx supabase db reset`（または `npx supabase migration up`）で適用できることと E2E を確かめる。
+2. reviewer が手元の Supabase で E2E を流して PASS を出す。
+3. PASS の後、オーケストレーターがユーザーと一緒に本番へ適用する:
+   ```
+   npx supabase link --project-ref <本番の project ref>   # 初回だけ（データベースのパスワードを聞かれる）
+   npx supabase migration list --linked                    # 本番に未適用のマイグレーションを確認する
+   npx supabase db push --dry-run                          # 適用される内容を確認する
+   npx supabase db push                                    # 適用する（シードは流れない）
+   ```
+   本番の無料枠を超えているときは、push を待つか、ダッシュボードの SQL エディタで該当ファイルだけ実行する。
+4. 本番（Vercel）で、該当する画面が動くことを確かめる。
 
 ## 2. Vercel
 
@@ -55,7 +74,7 @@ Supabase（本番プロジェクト: Auth / PostgreSQL / Storage）
 
    `E2E_*` は本番には不要。`WEATHER_MOCK` は設定しない（設定しても本番では効かない）。
    気温の Cron は `vercel.json` の `crons`（`0 20 * * *` = 日本時間 5:00）。デプロイ後 **Settings → Cron Jobs** に `/api/cron/weather` が出ることを確認し、「Run」で手動実行してログが 200 になることを確かめる（Cloudflare Access が Cron の呼び出しを止めていないかもここで確認する。止まる場合は `/api/cron/weather` を Access のバイパスに入れる。認証は Route Handler の `CRON_SECRET` が担う）。
-   **service_role で動く Cron の経路は E2E で検証していない**（E2E の `.env.local` に service_role の鍵がない場合、weather.spec の Cron のテストはスキップされる）。初回のデプロイ後に必ず 1 回、Vercel の「Run」または `npm run weather:sync -- --url https://<本番ドメイン>` で実行し、応答の `results` にエラーがないこと、圃場の詳細に「気温: 最終取得 …」が出ることを確かめる。
+   service_role で動く Cron の経路は手元の Supabase の E2E（weather.spec）で検証している。ただし本番の鍵・Cloudflare Access との組み合わせは E2E では通らないので、初回のデプロイ後に必ず 1 回、Vercel の「Run」または `npm run weather:sync -- --url https://<本番ドメイン>` で実行し、応答の `results` にエラーがないこと、圃場の詳細に「気温: 最終取得 …」が出ることを確かめる。
 3. デプロイして、`https://<プロジェクト>.vercel.app` でログイン画面が出ることを確認する（この時点ではまだ誰でも開ける。独自ドメイン ＋ Access を設定したら、Vercel の既定ドメインは使わない）。
 4. **Settings → Domains** に独自ドメイン `<本番ドメイン>` を追加する。Vercel が示す DNS レコード（CNAME `cname.vercel-dns.com`、または A レコード）を控える。
 

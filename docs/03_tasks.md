@@ -315,7 +315,7 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
 
 2026-10-27: 本番と E2E が同じ Supabase プロジェクトを共用していて、E2E の繰り返しで無料枠を超えた。E2E と開発は手元の PC の Supabase（Docker、`npx supabase start`）で行い、リモートのプロジェクトは本番専用にする。
 
-- [ ] **0-3 E2E と開発を手元の Supabase へ**
+- [x] **0-3 E2E と開発を手元の Supabase へ**
   - `npx supabase start` でマイグレーション 0001〜0019 がそのまま適用できる（0002・0003 は環境固有のデータで、手元には該当する auth ユーザーがないため、ユーザーが無ければ何もしない形に直す。リモートでは適用済みなので影響しない）
   - テスト農園 A/B とそのユーザー（パスワード付き）を `supabase/seed.sql` で作る。手元の Auth も Sign Up は無効
   - `.env.local` は手元の Supabase を向く（URL・Publishable key・service_role・CRON_SECRET・E2E のアカウント）。本番の値は Vercel だけに置く

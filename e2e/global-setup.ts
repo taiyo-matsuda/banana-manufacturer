@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertLocalSupabaseRunning, assertServerSecrets } from "./local-supabase";
 
 // Playwright の globalSetup（全プロジェクトの前に 1 回）。
 // ログインとテストデータの掃除は setup プロジェクト（auth.setup.ts）が行う。ここではログインが要らない準備だけ。
 export default async function globalSetup() {
+  // 最初に、Supabase が手元（127.0.0.1 / localhost）であることと、起動していることを確かめる。
+  // 本番（リモート）なら通信の前に止める（本番の無料枠を使わないため。タスク 0-3、architecture.md 7 章）
+  await assertLocalSupabaseRunning();
+  assertServerSecrets();
   await waitForEphemeralPorts();
 }
 

@@ -12,8 +12,8 @@ import { MOCK_FORECAST_BIAS_C, mockDailyMean } from "../src/lib/weather/mock";
 // 取り込みの入口:
 // - 圃場の登録（Server Action の after()）: 登録日（または最も古い茎）以降と直近 7 日。平年値の材料は取らない
 // - 圃場の詳細の「気温を今すぐ取り込む」: 日次（Cron）と同じ処理を 1 圃場だけ（ログイン中のユーザーの権限）
-// - /api/cron/weather（Vercel Cron）: service_role。?fieldId= でテスト用の圃場だけを処理する（本番の圃場と同居しているため）。
-//   SUPABASE_SERVICE_ROLE_KEY が .env.local に無ければ、Cron を叩くテストはスキップ（401 の検証は鍵がなくても走る）
+// - /api/cron/weather（Vercel Cron）: service_role。?fieldId= でテスト用の圃場だけを処理する（他の圃場の取り込みで遅くしないため）。
+//   E2E は手元の Supabase で流すので、service_role（`npx supabase status`）が .env.local に必ずある（無ければ global-setup が止める）
 // 失敗は Cookie e2e-weather-fault（archive / forecast / all）で起こす（モックのときだけサーバーが読む）。
 
 const BASE_URL = "http://127.0.0.1:3000";
@@ -304,10 +304,6 @@ test.describe("3-1 Cron の Route Handler（/api/cron/weather）", () => {
   test("Cron を 2 回叩いても行が重複せず、過去 API の失敗で欠けた日は次の Cron で埋まる（?fieldId= でテスト用の圃場だけ）", async ({
     request,
   }) => {
-    test.skip(
-      !process.env.SUPABASE_SERVICE_ROLE_KEY,
-      "SUPABASE_SERVICE_ROLE_KEY が .env.local にない（Cron の Route Handler は service_role で動く）",
-    );
     heavyOnlyOnIphone();
     test.setTimeout(120_000);
     const field = await fieldWithStem(15);
