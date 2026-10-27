@@ -310,3 +310,18 @@ PASS になったタスクだけ `[x]` にする。FAIL は指摘を添えて im
   - 完了条件:
     1. 出蕾済みの茎が予測日の週に数えられる。lost は数えず、要確認は別枠
     2. 圃場で絞り込める
+
+## ステップ 0（追加）: 開発・E2E を手元の Supabase に移す
+
+2026-10-27: 本番と E2E が同じ Supabase プロジェクトを共用していて、E2E の繰り返しで無料枠を超えた。E2E と開発は手元の PC の Supabase（Docker、`npx supabase start`）で行い、リモートのプロジェクトは本番専用にする。
+
+- [ ] **0-3 E2E と開発を手元の Supabase へ**
+  - `npx supabase start` でマイグレーション 0001〜0019 がそのまま適用できる（0002・0003 は環境固有のデータで、手元には該当する auth ユーザーがないため、ユーザーが無ければ何もしない形に直す。リモートでは適用済みなので影響しない）
+  - テスト農園 A/B とそのユーザー（パスワード付き）を `supabase/seed.sql` で作る。手元の Auth も Sign Up は無効
+  - `.env.local` は手元の Supabase を向く（URL・Publishable key・service_role・CRON_SECRET・E2E のアカウント）。本番の値は Vercel だけに置く
+  - E2E の準備（global-setup）で、Supabase が手元（127.0.0.1）でなければ実行を止める（誤って本番に流さない）。手元の Supabase が起動していなければ「`npx supabase start` してください」と止める
+  - CLAUDE.md・architecture.md 7 章・deploy.md・implementer.md・reviewer.md を手元の Supabase の前提に更新
+  - 完了条件:
+    1. `npx supabase db reset` の後、`npm run e2e` が全件合格する（これまでスキップしていた service_role が必要な Cron のテストも動く）
+    2. `.env.local` を本番の URL にして `npm run e2e` を流すと、準備の段階で止まる
+    3. 本番（リモート）の Supabase には一切アクセスしない（E2E 中の通信先が 127.0.0.1 だけ）
