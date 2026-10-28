@@ -121,12 +121,21 @@ export type MatStemRow = {
   pending?: boolean; // 未同期の吸芽（サーバーにまだ無い茎）
   // 3-3: 収穫予測日（estimates の最新。出蕾済みの茎だけ）。オフラインの殻（キャッシュ）には無い
   harvest?: { valueDate: string | null; needsReview: boolean } | null;
+  // 3-5a: 検算（茎一覧の警告）に使う枯葉処理（現在の値）。未送信分も重ねる
+  leaves_removed?: MatStemLeavesRemoved[];
 };
 
+export type MatStemLeavesRemoved = { id: string; count: number; occurred_at: string; pending?: boolean };
+
 export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly OutboxItem[]): MatStemRow[] {
-  const result = stems.map((s) => ({ ...s, observations: s.observations.map((o) => ({ ...o })) }));
+  const result: MatStemRow[] = stems.map((s) => ({
+    ...s,
+    observations: s.observations.map((o) => ({ ...o })),
+    leaves_removed: (s.leaves_removed ?? []).map((r) => ({ ...r })),
+  }));
   const byId = new Map(result.map((s) => [s.id, s]));
   const knownObs = new Set(result.flatMap((s) => s.observations.map((o) => o.id)));
+  const knownRemoved = new Set(result.flatMap((s) => (s.leaves_removed ?? []).map((r) => r.id)));
   const sorted = [...items].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 
   for (const item of sorted) {
@@ -144,7 +153,13 @@ export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly O
       });
     } else if (item.kind === "event") {
       const p = item.payload;
-      if (p.method === "record_stem_event" || p.method === "remove_sucker") {
+      if (p.method === "insert" && p.type === "leaves_removed") {
+        // 3-5a: 未送信の枯葉処理（検算に足す）
+        const count = Number(p.payload?.count);
+        if (knownRemoved.has(p.id) || !Number.isFinite(count)) continue;
+        knownRemoved.add(p.id);
+        stem.leaves_removed = [...(stem.leaves_removed ?? []), { id: p.id, count, occurred_at: p.occurred_at, pending: true }];
+      } else if (p.method === "record_stem_event" || p.method === "remove_sucker") {
         stem.status = nextStatus(stem.status, p.type, p.payload) ?? stem.status;
       } else if (p.method === "adopt_sucker") {
         // 2-2: 採用は状態（active）と初期葉数（累計葉数の起点）を重ねる。既に吸芽でなければ（同期済み）何もしない
@@ -174,11 +189,12 @@ export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly O
 }
 
 // 株の詳細で、送信済みで outbox から消えたがサーバーの props にまだ無い項目を保持するときの鍵。
-// 観測は観測の id、吸芽は吸芽の茎の id（株の詳細が持つのは茎と観測なので）。
+// 観測は観測の id、吸芽は吸芽の茎の id（株の詳細が持つのは茎と観測なので）、枯葉処理はイベントの id（3-5a、検算）。
 // 吸芽の採用・芽かき（2-2）は matSettledKey（その茎がサーバーで吸芽でなくなったら serverIds に入る鍵）。
 // それ以外は保持しない（null）
 export function matHoldKey(item: OutboxItem): string | null {
   if (item.kind === "observation") return item.payload.id;
+  if (item.kind === "event" && item.payload.method === "insert" && item.payload.type === "leaves_removed") return item.payload.id;
   if (item.kind === "event" && item.payload.method === "record_sucker_emerged") return item.payload.sucker_stem_id;
   if (item.kind === "event" && (item.payload.method === "adopt_sucker" || item.payload.method === "remove_sucker")) {
     return matSettledKey(item.payload.stem_id);
@@ -198,6 +214,7 @@ export function matServerIds(stems: readonly MatStemRow[]): Set<string> {
     ids.add(s.id);
     if (s.status !== "sucker") ids.add(matSettledKey(s.id));
     for (const o of s.observations) ids.add(o.id);
+    for (const r of s.leaves_removed ?? []) ids.add(r.id);
   }
   return ids;
 }

@@ -268,15 +268,15 @@ test("4. 検算: 現在の葉数を累計より 3 枚以上少なく記録する
   await expect(view(page).getByTestId("history-item").first().getByTestId("history-label")).toHaveText("現在の葉数");
   await expect(view(page).getByTestId("history-item").first().getByTestId("history-value")).toHaveText("9 枚");
 
-  // 現在の葉数 7（差 3）→ 警告「確認してください（累計 10、検算 7）」
+  // 現在の葉数 7（差 3）→ 警告「確認してください（記録時点の累計 10、検算 7）」
   await view(page).getByTestId("leaves-current-input").fill("7");
   await view(page).getByTestId("leaves-current-submit").click();
-  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（累計 10、検算 7）", {
+  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（記録時点の累計 10、検算 7）", {
     timeout: ACTION_TIMEOUT,
   });
   await waitForSynced(page);
   await page.reload();
-  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（累計 10、検算 7）");
+  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（記録時点の累計 10、検算 7）");
 
   // 枯葉処理 3 枚を記録してから現在の葉数 7 を記録 → 検算 = 7 + 3 = 10 で警告が消える
   page.once("dialog", (d) => void d.accept());

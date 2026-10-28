@@ -217,6 +217,20 @@ describe("吸芽の発生（2-1）の重ね合わせ", () => {
     expect(matStems[0].status).toBe("active");
   });
 
+  it("株の詳細（3-5a）: 未送信の枯葉処理が検算用に重なる。サーバーにある id は二重に足さず、保持の鍵はイベントの id", () => {
+    const removedItem = (id: string) =>
+      newLeavesRemovedItem({ id, createdAt: new Date("2026-10-23T00:00:00Z"), stemId: "stem-1", count: 3, occurredAt: new Date("2026-10-23T00:00:00Z"), userId: "u" });
+    const withServer: MatStemRow[] = [{ ...matStems[0], leaves_removed: [{ id: "lr-server", count: 2, occurred_at: "2026-10-20T00:00:00Z" }] }];
+    const r = applyOutboxToMat(withServer, [removedItem("lr-1"), removedItem("lr-server")]);
+    expect(r[0].leaves_removed).toEqual([
+      { id: "lr-server", count: 2, occurred_at: "2026-10-20T00:00:00Z" },
+      { id: "lr-1", count: 3, occurred_at: "2026-10-23T00:00:00.000Z", pending: true },
+    ]);
+    expect(withServer[0].leaves_removed).toHaveLength(1);
+    expect(matHoldKey(removedItem("lr-1"))).toBe("lr-1");
+    expect(matServerIds(withServer).has("lr-server")).toBe(true);
+  });
+
   it("保持の鍵: 観測は観測の id、吸芽は吸芽の茎の id、それ以外は保持しない", () => {
     expect(matHoldKey(pendingObs("o-1", "2026-10-23T00:00:00Z"))).toBe("o-1");
     expect(matHoldKey(suckerItem("e-1", "2026-10-25T00:00:00Z"))).toBe("sucker-1");

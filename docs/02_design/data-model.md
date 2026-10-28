@@ -279,7 +279,7 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | fertilizer_standard_amount, fertilizer_standard_unit | 3-5（0023）。収穫後の追肥の圃場の標準量（1 株あたり）と単位（kg / g / L / mL）。両方そろうか両方 null（既定値は置かない）。量の範囲は施肥の一括入力と同じ（0 より大きく 100,000 以下） |
 | updated_at | |
 
-0023 で `weekly_stems` を service_role にも grant した（日次の Cron の提案の評価が検算の Σ新葉に使う）。
+0023 で `weekly_stems` を service_role にも grant した（日次の Cron の提案の評価が検算の Σ新葉に使っていた。3-5a で検算は現在の葉数を記録した時点以前の新葉だけを数えるようになり、提案の評価は新葉を observations から観測ごとに読む。grant はそのまま）。
 
 ### open_recommendations（view、3-4・0022）
 ホームの「提案」用。open の提案に、対象の茎（`stem_id, generation, stem_status`）・株（`mat_id, mat_code`）・圃場（`field_id, field_name`）を left join で付ける（対象が株・圃場の提案は茎の列が null）。`security_invoker`。

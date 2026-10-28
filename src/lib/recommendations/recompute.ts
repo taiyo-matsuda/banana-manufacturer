@@ -20,7 +20,7 @@ import {
   type NewRecommendation,
   type Resolution,
 } from "./evaluate";
-import type { LeafObservationFact, MatFacts, Replacement, StemEventFact, StemFacts } from "./rules";
+import type { LeafNewFact, LeafObservationFact, MatFacts, Replacement, StemEventFact, StemFacts } from "./rules";
 import { RECOMMENDATION_PARAMS_COLUMNS, type RecommendationParamsRow, resolveRecommendationSettings } from "./settings";
 
 const PAGE = 1000;
@@ -164,7 +164,7 @@ type EventRow = {
 const EVENT_COLUMNS = "id, type, target_id, occurred_at, recorded_by, payload, superseded_by";
 const STEM_EVENT_TYPES = ["bagged", "debudded", "harvested", "damage", "leaves_removed"];
 
-type ObservationRow = { id: string; stem_id: string; value: number | string; observed_at: string; observed_by: string | null; superseded_by: string | null };
+type ObservationRow = { id: string; stem_id: string; type: string; value: number | string; observed_at: string; observed_by: string | null; superseded_by: string | null };
 
 async function loadExisting(db: SupabaseClient, targetType: "stem" | "mat", ids: readonly string[]): Promise<ExistingRecommendation[]> {
   const rows = await selectByIds<{ id: string; kind: string; target_type: string; target_id: string; rule_key: string; status: string }>(
@@ -196,7 +196,7 @@ function replacementOf(id: string, supersededBy: ReadonlyMap<string, string>, re
 
 async function buildStemFacts(db: SupabaseClient, stems: readonly StemRow[], settingsByField: Map<string, ReturnType<typeof resolveRecommendationSettings>>): Promise<StemFacts[]> {
   const stemIds = stems.map((s) => s.id);
-  const [events, estimates, observations, leavesNew] = await Promise.all([
+  const [events, estimates, observations] = await Promise.all([
     selectByIds<EventRow>(
       stemIds,
       (chunk, from, to) =>
@@ -222,35 +222,23 @@ async function buildStemFacts(db: SupabaseClient, stems: readonly StemRow[], set
           .range(from, to) as unknown as PromiseLike<Page<{ stem_id: string; lower_date: string | null }>>,
       "推定",
     ),
-    // 検算に使う「現在の葉数」（訂正された行も読む: 訂正で確認を閉じるため）
+    // 検算に使う「現在の葉数」と「新葉」（3-5a: 現在の葉数を記録した時点以前の新葉だけを数えるので、新葉も観測ごとに読む）。
+    // 訂正された行も読む（現在の葉数の訂正で確認を閉じるため。検算には現在の値だけを使う）
     selectByIds<ObservationRow>(
       stemIds,
       (chunk, from, to) =>
         db
           .from("observations")
-          .select("id, stem_id, value, observed_at, observed_by, superseded_by")
-          .eq("type", "leaves_current")
+          .select("id, stem_id, type, value, observed_at, observed_by, superseded_by")
+          .in("type", ["leaves_current", "leaves_new"])
           .in("stem_id", chunk)
           .order("id")
           .range(from, to) as unknown as PromiseLike<Page<ObservationRow>>,
       "観測",
     ),
-    // Σ新葉（現在の値。weekly_stems は 1-6 の累計と同じ合計）
-    selectByIds<{ stem_id: string; leaves_new_sum: number | string | null }>(
-      stemIds,
-      (chunk, from, to) =>
-        db
-          .from("weekly_stems")
-          .select("stem_id, leaves_new_sum")
-          .in("stem_id", chunk)
-          .order("stem_id")
-          .range(from, to) as unknown as PromiseLike<Page<{ stem_id: string; leaves_new_sum: number | string | null }>>,
-      "新葉の合計",
-    ),
   ]);
 
   const lowerByStem = new Map(estimates.map((e) => [e.stem_id, e.lower_date]));
-  const leavesNewByStem = new Map(leavesNew.map((r) => [r.stem_id, Number(r.leaves_new_sum ?? 0)]));
   const supersededBy = new Map<string, string>();
   const recorder = new Map<string, string | null>();
   for (const e of events) {
@@ -292,12 +280,21 @@ async function buildStemFacts(db: SupabaseClient, stems: readonly StemRow[], set
     else eventsByStem.set(e.target_id, [fact]);
   }
   const currentByStem = new Map<string, LeafObservationFact[]>();
+  const newByStem = new Map<string, LeafNewFact[]>();
   for (const o of observations) {
     if (o.superseded_by) {
       addReplacement(o.stem_id, o.id);
       continue;
     }
-    const fact: LeafObservationFact = { id: o.id, value: Number(o.value), observedAt: o.observed_at, observedBy: o.observed_by };
+    const value = Number(o.value);
+    if (!Number.isFinite(value)) continue;
+    if (o.type === "leaves_new") {
+      const list = newByStem.get(o.stem_id);
+      if (list) list.push({ value, observedAt: o.observed_at });
+      else newByStem.set(o.stem_id, [{ value, observedAt: o.observed_at }]);
+      continue;
+    }
+    const fact: LeafObservationFact = { id: o.id, value, observedAt: o.observed_at, observedBy: o.observed_by };
     const list = currentByStem.get(o.stem_id);
     if (list) list.push(fact);
     else currentByStem.set(o.stem_id, [fact]);
@@ -313,7 +310,7 @@ async function buildStemFacts(db: SupabaseClient, stems: readonly StemRow[], set
     adoptedAt: s.adopted_at,
     startedAt: s.started_at,
     initialLeafCount: s.initial_leaf_count,
-    leavesNewSum: leavesNewByStem.get(s.id) ?? 0,
+    leavesNew: newByStem.get(s.id) ?? [],
     leavesCurrent: currentByStem.get(s.id) ?? [],
     replacedBy: replacedByStem.get(s.id) ?? {},
   }));

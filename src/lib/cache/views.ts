@@ -136,6 +136,11 @@ export function matDetailFromCache(
     observations: snapshot.observations
       .filter((o) => o.stem_id === s.id && o.superseded_by === null)
       .map((o) => ({ id: o.id, type: o.type, value: Number(o.value), observed_at: o.observed_at })),
+    // 3-5a: 検算（茎一覧の「検算ずれ」）に使う枯葉処理（現在の値）
+    leaves_removed: snapshot.events
+      .filter((e) => e.target_type === "stem" && e.target_id === s.id && e.type === "leaves_removed" && e.superseded_by === null)
+      .map((e) => ({ id: e.id, count: Number(e.payload?.count), occurred_at: e.occurred_at }))
+      .filter((r) => Number.isFinite(r.count)),
   }));
   const matEvents = targetEvents(snapshot, "mat", matId);
   const removed = matEvents.find((e) => e.type === "mat_removed" && e.superseded_by === null) ?? null;

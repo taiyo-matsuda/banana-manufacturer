@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { MAT_HISTORY_LIMIT, type MatDetailData } from "@/lib/mats/detail";
 import { harvestDisplayFrom } from "@/lib/prediction/harvest";
-import type { MatStemRow } from "@/lib/offline/overlay";
+import type { MatStemLeavesRemoved, MatStemRow } from "@/lib/offline/overlay";
 import { sortStemsByGeneration } from "@/lib/stems/status";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
@@ -96,18 +96,44 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     : null;
 
   // 3-3: 出蕾済みの茎の収穫予測日（estimates の最新 = latest_estimates）。茎の id が要るので茎を読んでから（出蕾済みの茎があるときだけ）
+  // 3-5a: 検算（茎一覧の「検算ずれ」）に使う枯葉処理（現在の値）。収穫予測日と並べて取る
   const floweredIds = (stemRows ?? []).filter((s) => s.status === "flowered").map((s) => s.id as string);
+  const leafStemIds = (stemRows ?? []).filter((s) => s.status !== "sucker").map((s) => s.id as string);
   const harvestByStem = new Map<string, { valueDate: string | null; needsReview: boolean }>();
-  if (floweredIds.length > 0) {
-    const { data: latest, error: latestError } = await supabase
-      .from("latest_estimates")
-      .select("stem_id, value_date, lower_date, upper_date, inputs, computed_at")
-      .eq("kind", "harvest_date")
-      .in("stem_id", floweredIds);
-    if (latestError) console.error("latest_estimates select failed", latestError.message);
-    for (const row of latest ?? []) {
+  const removedByStem = new Map<string, MatStemLeavesRemoved[]>();
+  const [latestResult, removedResult] = await Promise.all([
+    floweredIds.length > 0
+      ? supabase
+          .from("latest_estimates")
+          .select("stem_id, value_date, lower_date, upper_date, inputs, computed_at")
+          .eq("kind", "harvest_date")
+          .in("stem_id", floweredIds)
+      : null,
+    leafStemIds.length > 0
+      ? supabase
+          .from("events")
+          .select("id, target_id, occurred_at, payload")
+          .eq("target_type", "stem")
+          .eq("type", "leaves_removed")
+          .in("target_id", leafStemIds)
+          .is("superseded_by", null)
+      : null,
+  ]);
+  if (latestResult) {
+    if (latestResult.error) console.error("latest_estimates select failed", latestResult.error.message);
+    for (const row of latestResult.data ?? []) {
       const d = harvestDisplayFrom(row);
       if (d) harvestByStem.set(row.stem_id as string, { valueDate: d.state === "ok" ? d.valueDate : null, needsReview: d.needsReview });
+    }
+  }
+  if (removedResult) {
+    if (removedResult.error) console.error("leaves_removed select failed", removedResult.error.message);
+    for (const e of removedResult.data ?? []) {
+      const count = Number((e.payload as Record<string, unknown> | null)?.count);
+      if (!Number.isFinite(count)) continue;
+      const list = removedByStem.get(e.target_id as string) ?? [];
+      list.push({ id: e.id as string, count, occurred_at: e.occurred_at as string });
+      removedByStem.set(e.target_id as string, list);
     }
   }
 
@@ -122,6 +148,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     parent_stem_id: s.parent_stem_id,
     observations: (s.observations ?? []).map((o) => ({ id: o.id, type: o.type, value: Number(o.value), observed_at: o.observed_at })),
     harvest: harvestByStem.get(s.id) ?? null,
+    leaves_removed: removedByStem.get(s.id) ?? [],
   }));
 
   const data: MatDetailData = {

@@ -339,10 +339,10 @@ describe("確認（重い被害）", () => {
   });
 });
 
-describe("確認（累計葉数の検算ずれ ≥ 3、1-6 と同じ式）", () => {
+describe("確認（累計葉数の検算ずれ ≥ 3、茎の画面の警告と同じ式 leaves.ts）", () => {
   const obs = (id: string, value: number, observedAt: string, observedBy: string | null = USER) => ({ id, value, observedAt, observedBy });
-  // 累計 = 5 + 10 = 15。検算 = 現在の葉数 + それまでの枯葉処理
-  const base = { initialLeafCount: 5, leavesNewSum: 10 };
+  // 記録時点の累計 = 5 + 10 = 15（10/1 の新葉）。検算 = 現在の葉数 + それまでの枯葉処理
+  const base = { initialLeafCount: 5, leavesNew: [{ value: 10, observedAt: "2026-10-01T01:00:00Z" }] };
 
   it("ずれが 3 枚以上で出す。理由に枚数、rule_key は検算に使った現在の葉数の観測", () => {
     const r = evaluateStemRecommendations([growing({ ...base, leavesCurrent: [obs("o1", 12, "2026-10-27T01:00:00Z")] })], [], TODAY);
@@ -353,7 +353,7 @@ describe("確認（累計葉数の検算ずれ ≥ 3、1-6 と同じ式）", () 
         targetId: "s1",
         ruleKey: "leaf_check:o1",
         dueAt: TODAY,
-        reason: "累計葉数の検算が 3 枚ずれています（累計 15、検算 12）",
+        reason: "累計葉数の検算が 3 枚ずれています（記録時点の累計 15、検算 12）",
       },
     ]);
   });
@@ -405,11 +405,49 @@ describe("確認（累計葉数の検算ずれ ≥ 3、1-6 と同じ式）", () 
 
   it("新葉の訂正などでずれが 3 枚未満になれば done（検算のずれが解消）", () => {
     const r = evaluateStemRecommendations(
-      [growing({ ...base, leavesNewSum: 8, leavesCurrent: [obs("o1", 12, "2026-10-27T01:00:00Z")] })],
+      [growing({ ...base, leavesNew: [{ value: 8, observedAt: "2026-10-01T01:00:00Z" }], leavesCurrent: [obs("o1", 12, "2026-10-27T01:00:00Z")] })],
       [rec("inspect", "open", { ruleKey: "leaf_check:o1" })],
       TODAY,
     );
     expect(r.resolve).toEqual([{ id: "r-inspect-open", status: "done", note: "検算のずれが解消", resolvedBy: null, eventId: null }]);
+  });
+
+  describe("3-5a: 現在の葉数を記録した時点で比べる", () => {
+    const leavesNew = (...items: [number, string][]) => items.map(([value, observedAt]) => ({ value, observedAt }));
+
+    it("完了条件 1: 現在の葉数を記録した後に新葉を 3 枚以上記録しても出さない", () => {
+      const facts = growing({
+        initialLeafCount: 5,
+        leavesCurrent: [obs("o1", 5, "2026-10-20T01:00:00Z")],
+        leavesNew: leavesNew([1, "2026-10-21T01:00:00Z"], [2, "2026-10-24T01:00:00Z"], [1, "2026-10-27T01:00:00Z"]),
+      });
+      expect(evaluateStemRecommendations([facts], [], TODAY)).toEqual({ create: [], resolve: [] });
+    });
+
+    it("完了条件 2: 記録した時点で 3 枚以上ずれていれば、後の新葉があっても出す（理由は記録時点の値）", () => {
+      const facts = growing({
+        initialLeafCount: 5,
+        leavesCurrent: [obs("o1", 9, "2026-10-20T01:00:00Z")],
+        leavesNew: leavesNew([1, "2026-10-19T01:00:00Z"], [3, "2026-10-25T01:00:00Z"]),
+      });
+      expect(evaluateStemRecommendations([facts], [], TODAY).create).toEqual([
+        expect.objectContaining({ ruleKey: "leaf_check:o1", reason: "累計葉数の検算が 3 枚ずれています（記録時点の累計 6、検算 9）" }),
+      ]);
+    });
+
+    it("完了条件 3: 以前の式で出た open の確認は、新しい式でずれが 3 枚未満なら done（検算のずれが解消）", () => {
+      // 以前の式: 今の累計 5 + 4 = 9 と 現在の葉数 5 → 4 枚のずれで open。新しい式: 記録時点の累計 5 と 5 → ずれなし
+      const facts = growing({
+        initialLeafCount: 5,
+        leavesCurrent: [obs("o1", 5, "2026-10-20T01:00:00Z")],
+        leavesNew: leavesNew([2, "2026-10-21T01:00:00Z"], [2, "2026-10-24T01:00:00Z"]),
+      });
+      const r = evaluateStemRecommendations([facts], [rec("inspect", "open", { ruleKey: "leaf_check:o1" })], TODAY);
+      expect(r).toEqual({
+        create: [],
+        resolve: [{ id: "r-inspect-open", status: "done", note: "検算のずれが解消", resolvedBy: null, eventId: null }],
+      });
+    });
   });
 
   it("重い被害と検算ずれが両方あっても、確認の open は 1 件まで（重い被害が先）。被害の確認が閉じたら検算の確認", () => {

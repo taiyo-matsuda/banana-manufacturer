@@ -5,7 +5,7 @@
 // - completion: open の提案（rule_key）を done にする記録（対応する記録）を返す（なければ null）
 // - owns: 同じ kind を複数のルールで出すとき（確認 = 検算ずれ / 重い被害）、その rule_key が自分のものか
 // 評価（evaluate.ts）が、既存の提案（全状態）と突き合わせて「作るもの」「閉じるもの」を決める。
-import { cumulativeLeavesByCheck, LEAF_CHECK_THRESHOLD } from "../leaves";
+import { leafCheck as computeLeafCheck, type LeafCheck } from "../leaves";
 import { formatMonthDay } from "../prediction/harvest";
 import { damageKindLabel } from "../stemEvents";
 import { addDays } from "../weather/dates";
@@ -48,6 +48,9 @@ export type LeafObservationFact = {
   observedBy: string | null;
 };
 
+// 新葉の観測（現在の値。訂正済みを除く）。検算で「現在の葉数を記録した時点以前」かを observed_at で見る
+export type LeafNewFact = { value: number; observedAt: string }; // observedAt は ISO
+
 // 訂正された行（superseded_by が付いた観測・イベント）→ 訂正した行（の記録者）
 export type Replacement = { id: string; recordedBy: string | null };
 
@@ -62,9 +65,10 @@ export type StemFacts = {
   // 3-5: 枯葉処理の起点（採用日、なければ発生・植え付けの日）
   adoptedAt?: string | null;
   startedAt?: string | null;
-  // 3-5: 検算（1-6 と同じ式。初期葉数 + Σ新葉 と、最新の現在の葉数 + それまでの枯葉処理）
+  // 3-5 / 3-5a: 検算（茎の画面の警告と同じ式 src/lib/leaves.ts の leafCheck。最新の現在の葉数を記録した時点で、
+  // 初期葉数 + その時点以前の新葉 と、その現在の葉数 + その時点以前の枯葉処理 を比べる）。現在の値だけを渡す
   initialLeafCount?: number | null;
-  leavesNewSum?: number;
+  leavesNew?: readonly LeafNewFact[];
   leavesCurrent?: readonly LeafObservationFact[];
   // 3-5: 訂正された観測・イベントの id → 訂正した行
   replacedBy?: Readonly<Record<string, Replacement>>;
@@ -215,27 +219,31 @@ const inspectDamageRule: StemRule = {
 };
 
 // --- 3-5 確認（累計葉数の検算ずれ） ------------------------------------------------------------------------
-// 栽培中・出蕾済みの茎で、1-6 の検算（累計 = 初期葉数 + Σ新葉、検算 = 最新の現在の葉数 + それまでの枯葉処理）の差が 3 枚以上。
-// 茎の画面の警告「確認してください（累計 X、検算 Y）」と同じ式（src/lib/leaves.ts）。期限は今日。rule_key は「leaf_check:観測 id」
-// （検算に使った最新の現在の葉数）。
+// 栽培中・出蕾済みの茎で、検算（3-5a: 最新の現在の葉数を記録した時点で、初期葉数 + その時点以前の新葉 と
+// その現在の葉数 + その時点以前の枯葉処理 を比べる）の差が 3 枚以上。茎の画面の警告と同じ式（src/lib/leaves.ts の leafCheck）。
+// 期限は今日。rule_key は「leaf_check:観測 id」（検算に使った最新の現在の葉数）。
 // done: 現在の葉数を記録し直した（新しい検算。まだずれていれば新しい観測で次の提案になる）、その観測を訂正した、
-// または新葉・初期葉数の訂正などでずれが 3 枚未満になった
+// または新葉・初期葉数の訂正や式の変更（3-5a）などでずれが 3 枚未満になった（「検算のずれが解消」）
 const INSPECT_LEAF = "leaf_check:";
 
-function leafCheck(stem: StemFacts): { cumulative: number; byCheck: number; latest: LeafObservationFact } | null {
+function leafCheck(stem: StemFacts): (LeafCheck & { latest: LeafObservationFact }) | null {
   if (stem.initialLeafCount === null || stem.initialLeafCount === undefined) return null;
   const current = stem.leavesCurrent ?? [];
   if (current.length === 0) return null;
-  const latest = [...current].sort((a, b) => b.observedAt.localeCompare(a.observedAt) || b.id.localeCompare(a.id))[0];
   const removed = stem.events
     .filter((e) => e.type === "leaves_removed" && typeof e.count === "number" && Number.isFinite(e.count) && e.occurredAt)
     .map((e) => ({ count: e.count as number, occurredAt: new Date(e.occurredAt as string) }));
-  const byCheck = cumulativeLeavesByCheck(
-    current.map((o) => ({ type: "leaves_current" as const, value: o.value, observedAt: new Date(o.observedAt) })),
+  const check = computeLeafCheck(
+    stem.initialLeafCount,
+    [
+      ...current.map((o) => ({ type: "leaves_current" as const, value: o.value, observedAt: new Date(o.observedAt), id: o.id })),
+      ...(stem.leavesNew ?? []).map((o) => ({ type: "leaves_new" as const, value: o.value, observedAt: new Date(o.observedAt) })),
+    ],
     removed,
   );
-  if (byCheck === null) return null;
-  return { cumulative: stem.initialLeafCount + (stem.leavesNewSum ?? 0), byCheck, latest };
+  const latest = check && current.find((o) => o.id === check.observationId);
+  if (!check || !latest) return null;
+  return { ...check, latest };
 }
 
 const inspectLeafRule: StemRule = {
@@ -245,13 +253,11 @@ const inspectLeafRule: StemRule = {
   propose(stem, today) {
     if (!GROWING_STATUSES.includes(stem.status)) return null;
     const check = leafCheck(stem);
-    if (!check) return null;
-    const diff = Math.abs(check.cumulative - check.byCheck);
-    if (diff < LEAF_CHECK_THRESHOLD) return null;
+    if (!check?.needsCheck) return null;
     return {
       ruleKey: `${INSPECT_LEAF}${check.latest.id}`,
       dueAt: today,
-      reason: `累計葉数の検算が ${diff} 枚ずれています（累計 ${check.cumulative}、検算 ${check.byCheck}）`,
+      reason: `累計葉数の検算が ${check.diff} 枚ずれています（記録時点の累計 ${check.cumulative}、検算 ${check.byCheck}）`,
     };
   },
   completion(stem, ruleKey) {
@@ -260,9 +266,7 @@ const inspectLeafRule: StemRule = {
     if (corrected) return { note: "葉数の記録を訂正", recordedBy: corrected.recordedBy, eventId: null };
     const check = leafCheck(stem);
     if (check && check.latest.id !== id) return { note: "現在の葉数を記録", recordedBy: check.latest.observedBy, eventId: null };
-    if (!check || Math.abs(check.cumulative - check.byCheck) < LEAF_CHECK_THRESHOLD) {
-      return { note: "検算のずれが解消", recordedBy: null, eventId: null };
-    }
+    if (!check?.needsCheck) return { note: "検算のずれが解消", recordedBy: null, eventId: null };
     return null;
   },
 };

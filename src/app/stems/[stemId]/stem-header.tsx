@@ -5,7 +5,7 @@ import { budLeafSnapshotText } from "@/lib/corrections";
 import { generationLabel, stemStatusLabel } from "@/lib/stems/status";
 import type { StemView } from "@/lib/stems/view";
 
-// ヘッダ: 株コード、世代、状態、累計葉数（初期葉数 + Σ leaves_new。吸芽では出さない）、検算のずれの警告。履歴画面と共通
+// ヘッダ: 株コード、世代、状態、累計葉数（初期葉数 + Σ leaves_new。吸芽では出さない）、検算（最新の現在の葉数を記録した時点で比べる。3-5a）とずれの警告。履歴画面と共通
 export function StemHeader({ stem }: { stem: StemView }) {
   return (
     <Card>
@@ -53,10 +53,16 @@ export function StemHeader({ stem }: { stem: StemView }) {
               </dd>
             </>
           )}
-          {stem.byCheck !== null && (
+          {/* 3-5a: 検算は最新の現在の葉数を記録した時点で比べる。その時点の累計を添える（後の新葉は入れない） */}
+          {stem.check !== null && (
             <>
               <dt className="text-muted-foreground">検算</dt>
-              <dd data-testid="stem-leaves-by-check">{stem.byCheck} 枚</dd>
+              <dd>
+                <span data-testid="stem-leaves-by-check">{stem.check.byCheck} 枚</span>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  （記録時点の累計 <span data-testid="stem-check-cumulative">{stem.check.cumulative}</span> 枚）
+                </span>
+              </dd>
             </>
           )}
         </dl>

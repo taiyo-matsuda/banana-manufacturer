@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { LeafCheckBadge } from "@/components/app/leaf-check-badge";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
 import { NeedsReviewBadge } from "@/components/app/needs-review-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,6 +12,7 @@ import { applyOutboxToMat, matHoldKey, matServerIds, type MatStemRow } from "@/l
 import { useHeldItems } from "@/lib/offline/use-held-items";
 import { useOutboxForStems } from "@/lib/offline/use-live-query";
 import { generationLabel, sortStemsByGeneration, stemStatusLabel } from "@/lib/stems/status";
+import { matStemLeafCheck } from "@/lib/stems/view";
 import { SuckerActions } from "./sucker-actions";
 import { SuckerRecord } from "./sucker-record";
 
@@ -75,12 +77,15 @@ function StemRowBody({ stem }: { stem: MatStemRow }) {
   const leavesNew = stem.observations
     .filter((o) => o.type === "leaves_new")
     .map((o) => ({ type: "leaves_new" as const, value: Number(o.value), observedAt: new Date(o.observed_at) }));
+  // 3-5a: 検算のずれ（茎の画面の警告・「確認」の提案と同じ式。最新の現在の葉数を記録した時点で比べる）
+  const check = matStemLeafCheck(stem);
   return (
     <>
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-medium">{generationLabel(stem.generation)}</span>
         <span className="text-sm text-muted-foreground">第 {stem.generation} 世代</span>
         {stem.status === "flowered" && stem.harvest?.needsReview && <NeedsReviewBadge data-testid="stem-harvest-review" />}
+        {check?.needsCheck && <LeafCheckBadge data-testid="stem-leaf-check-warning" />}
         {stem.pending && (
           <Badge variant="outline" className="border-warning-foreground/40 bg-warning text-warning-foreground" data-testid="stem-pending">
             未同期
@@ -98,6 +103,11 @@ function StemRowBody({ stem }: { stem: MatStemRow }) {
               {cumulativeLeaves(stem.initial_leaf_count, leavesNew)}
             </span>{" "}
             枚
+          </span>
+        )}
+        {check?.needsCheck && (
+          <span data-testid="stem-leaf-check">
+            記録時点の累計 {check.cumulative}・検算 {check.byCheck}
           </span>
         )}
         {stem.status === "flowered" && stem.harvest && (

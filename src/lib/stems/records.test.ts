@@ -148,8 +148,8 @@ describe("累計・検算の入力への変換", () => {
       { id: "5", type: "leaves_current", value: 8, observed_at: "2026-10-03T00:00:00Z", superseded_by: null },
     ]);
     expect(obs).toEqual([
-      { type: "leaves_new", value: 1, observedAt: new Date("2026-10-01T00:00:00Z") },
-      { type: "leaves_current", value: 8, observedAt: new Date("2026-10-03T00:00:00Z") },
+      { type: "leaves_new", value: 1, observedAt: new Date("2026-10-01T00:00:00Z"), id: "1" },
+      { type: "leaves_current", value: 8, observedAt: new Date("2026-10-03T00:00:00Z"), id: "5" },
     ]);
   });
 

@@ -425,14 +425,14 @@ test("完了条件 3（検算ずれ）: 累計葉数の検算が 3 枚以上ず�
   await context.setOffline(true);
   await view(page).getByTestId("leaves-current-input").fill("12");
   await view(page).getByTestId("leaves-current-submit").click();
-  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（累計 5、検算 12）", { timeout: ACTION_TIMEOUT });
+  await expect(view(page).getByTestId("leaf-check-warning")).toHaveText("確認してください（記録時点の累計 5、検算 12）", { timeout: ACTION_TIMEOUT });
   expect(await recommendations("stem", s.stemId, "inspect")).toEqual([]);
   await context.setOffline(false);
   await waitForSynced(page);
   await expect.poll(() => statuses("stem", s.stemId, "inspect"), { timeout: ACTION_TIMEOUT }).toEqual(["open"]);
   expect((await recommendations("stem", s.stemId, "inspect"))[0]).toMatchObject({
     due_at: today(),
-    reason: "累計葉数の検算が 7 枚ずれています（累計 5、検算 12）",
+    reason: "累計葉数の検算が 7 枚ずれています（記録時点の累計 5、検算 12）",
     organization_id: ORG_A,
   });
 
@@ -441,7 +441,7 @@ test("完了条件 3（検算ずれ）: 累計葉数の検算が 3 枚以上ず�
   const row = stemRow(page, s.stemId, "inspect");
   await expect(row.getByTestId("recommendation-kind")).toHaveText("確認");
   await expect(row.getByTestId("recommendation-target")).toHaveText(`${s.code} 親`);
-  await expect(row.getByTestId("recommendation-reason")).toHaveText("累計葉数の検算が 7 枚ずれています（累計 5、検算 12）");
+  await expect(row.getByTestId("recommendation-reason")).toHaveText("累計葉数の検算が 7 枚ずれています（記録時点の累計 5、検算 12）");
   await expect(row.getByTestId("recommendation-due")).toHaveText(`期限 今日（${md(today())}）`);
   await row.getByTestId("recommendation-done").click();
   await expect(page).toHaveURL(`/stems/${s.stemId}`, { timeout: ACTION_TIMEOUT });

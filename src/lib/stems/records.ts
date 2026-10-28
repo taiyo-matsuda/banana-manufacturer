@@ -292,6 +292,7 @@ export function toLeafObservations(observations: readonly ObservationRow[]): Lea
       type: o.type as LeafObservation["type"],
       value: Number(o.value),
       observedAt: new Date(o.observed_at),
+      id: o.id,
     }));
 }
 
