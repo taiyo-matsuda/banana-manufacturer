@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { isCorrectableEventType, isCorrectableObservationType } from "@/lib/corrections";
+import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
 import { createClient } from "@/lib/supabase/server";
 
 // 記録の訂正（2-6）。RPC（0014_corrections.sql の correct_observation / correct_stem_event）が
@@ -85,6 +86,11 @@ export async function correctStemEvent(input: CorrectStemEventInput): Promise<Co
     if (error.code === "P0001") return { ok: false, error: error.message };
     console.error("correct_stem_event failed", { code: error.code, message: error.message });
     return { ok: false, error: FAILED };
+  }
+  // 3-3: 出蕾日・被害の程度を直したら、その茎の収穫予測日を再計算する（追記。前回と同じなら追記しない）
+  if (input.type === "bud_emerged" || input.type === "damage") {
+    const { data: corrected } = await supabase.from("events").select("target_id").eq("id", input.newId).maybeSingle();
+    if (corrected) await recomputeHarvestEstimatesQuietly(supabase, { stemIds: [corrected.target_id as string] }, "correction");
   }
   revalidatePath("/", "layout");
   return { ok: true };

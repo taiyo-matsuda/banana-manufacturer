@@ -1,3 +1,4 @@
+import { recomputeHarvestEstimates, type RecomputeResult } from "@/lib/prediction/recompute";
 import { createServiceRoleClient, serviceRoleConfigured } from "@/lib/supabase/service-role";
 import { MOCK_FAULT_NAME, mockFaultFrom, weatherFetcher } from "@/lib/weather/server";
 import { SYNC_FIELD_COLUMNS, syncFieldWeather, type SyncField, type SyncResult } from "@/lib/weather/sync";
@@ -12,6 +13,8 @@ import { SYNC_FIELD_COLUMNS, syncFieldWeather, type SyncField, type SyncResult }
 //
 // 1 回の実行は約 50 秒で打ち切る（Vercel の関数の時間制限）。過去 API の残り（10 年分の平年値の材料など）は次回に続きから取る。
 // 前回の実行が古い圃場から順に処理する。
+// 3-3: 各圃場の取り込みの後、その圃場の出蕾済みの茎の収穫予測日を再計算して estimates に追記する（前回と同じなら追記しない）。
+// 取り込みに失敗しても、あるだけの気温で再計算する（欠けた日は平年値で補う）。
 export const maxDuration = 60;
 const BUDGET_MS = 50_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,6 +69,7 @@ export async function GET(request: Request) {
   const fetchFn = weatherFetcher(mockFaultFrom(request.headers.get(MOCK_FAULT_NAME)));
   const deadline = startedAt + BUDGET_MS;
   const results: SyncResult[] = [];
+  const predictions: (RecomputeResult & { fieldId: string })[] = [];
   let skipped = 0;
   for (const field of ordered) {
     if (Date.now() > deadline) {
@@ -75,13 +79,17 @@ export async function GET(request: Request) {
     const r = await syncFieldWeather(db, fetchFn, field, { includeNormals: true, deadline });
     if (r.errors.length > 0) console.error("weather cron: field sync errors", field.id, r.errors);
     results.push(r);
+    const p = await recomputeHarvestEstimates(db, { fieldId: field.id });
+    if (p.errors.length > 0) console.error("weather cron: harvest recompute errors", field.id, p.errors);
+    predictions.push({ fieldId: field.id, ...p });
   }
 
   return Response.json({
-    ok: results.every((r) => r.errors.length === 0),
+    ok: results.every((r) => r.errors.length === 0) && predictions.every((p) => p.errors.length === 0),
     processed: results.length,
     skipped,
     results,
+    predictions,
     ms: Date.now() - startedAt,
   });
 }

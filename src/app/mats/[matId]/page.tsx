@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AppScreen, LoadingText } from "@/components/app/app-screen";
 import { MAT_HISTORY_LIMIT, type MatDetailData } from "@/lib/mats/detail";
+import { harvestDisplayFrom } from "@/lib/prediction/harvest";
 import type { MatStemRow } from "@/lib/offline/overlay";
 import { sortStemsByGeneration } from "@/lib/stems/status";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
@@ -9,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MatDetailScreen } from "./mat-detail-view";
 
 // 画面 3「株の詳細」: コード、品種、植え付け日、苗の種類、由来、茎の一覧（世代順。状態と累計葉数）、茎の登録。
-// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。吸芽の採用・芽かき・株分け（2-2）は吸芽の行のボタン（sucker-actions.tsx）。株分けで作った株は由来（元の株と茎の世代）へリンクする。予測収穫日（ステップ 3）は後のタスクで追加する。
+// 各茎は茎の記録入力（/stems/[stemId]、1-6）へリンクする。吸芽の発生（2-1）は「吸芽が出た」で記録する（mat-stems.tsx / sucker-record.tsx）。吸芽の採用・芽かき・株分け（2-2）は吸芽の行のボタン（sucker-actions.tsx）。株分けで作った株は由来（元の株と茎の世代）へリンクする。出蕾済みの茎には収穫予測日（3-3、estimates の最新）と要確認を出す。
 // 株の編集（/mats/[matId]/edit、UX-2）への導線。株の植え付け日と最初の茎の植え付け日がずれていたら注意を出す（データは直さない）。
 // 開いた株は端末に残し、ホームの「最近開いた株」から 1 タップで戻れる（UX-1）。
 // 株単位のイベント（target_type=mat。施肥 2-4、株の被害 2-5、撤去など）は「株の記録」に新しい順で出す（茎の履歴と同じ表示）。
@@ -94,6 +95,22 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     ? (mat.origin_stem as unknown as { generation: number; mat: { id: string; code: string } | null } | null)
     : null;
 
+  // 3-3: 出蕾済みの茎の収穫予測日（estimates の最新 = latest_estimates）。茎の id が要るので茎を読んでから（出蕾済みの茎があるときだけ）
+  const floweredIds = (stemRows ?? []).filter((s) => s.status === "flowered").map((s) => s.id as string);
+  const harvestByStem = new Map<string, { valueDate: string | null; needsReview: boolean }>();
+  if (floweredIds.length > 0) {
+    const { data: latest, error: latestError } = await supabase
+      .from("latest_estimates")
+      .select("stem_id, value_date, lower_date, upper_date, inputs, computed_at")
+      .eq("kind", "harvest_date")
+      .in("stem_id", floweredIds);
+    if (latestError) console.error("latest_estimates select failed", latestError.message);
+    for (const row of latest ?? []) {
+      const d = harvestDisplayFrom(row);
+      if (d) harvestByStem.set(row.stem_id as string, { valueDate: d.state === "ok" ? d.valueDate : null, needsReview: d.needsReview });
+    }
+  }
+
   // 2-1: 茎一覧は Client Component（mat-stems.tsx）が端末の未送信分（吸芽・観測）を重ねて描く。
   // 観測は全種類の現在の値（累計葉数は leaves_new だけを数える。前回訪問日の既定値は全種類の直近の観測日）
   const stems: MatStemRow[] = sortStemsByGeneration(stemRows ?? []).map((s) => ({
@@ -104,6 +121,7 @@ async function MatDetail({ params }: { params: Promise<{ matId: string }> }) {
     initial_leaf_count: s.initial_leaf_count ?? 0,
     parent_stem_id: s.parent_stem_id,
     observations: (s.observations ?? []).map((o) => ({ id: o.id, type: o.type, value: Number(o.value), observed_at: o.observed_at })),
+    harvest: harvestByStem.get(s.id) ?? null,
   }));
 
   const data: MatDetailData = {

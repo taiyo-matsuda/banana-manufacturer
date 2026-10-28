@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { type StemGdd, stemGdd, stemGddPeriod } from "@/lib/gdd";
 import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
+import { type HarvestDisplay, harvestDisplayFrom } from "@/lib/prediction/harvest";
+import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
 import { todayJst } from "@/lib/stemEvents";
 import type { EventRow, ObservationRow, PhotoRow } from "@/lib/stems/records";
 import { buildStemView, type StemView } from "@/lib/stems/view";
@@ -42,11 +44,32 @@ export async function loadStem(stemId: string): Promise<StemView> {
 // 気温は茎の圃場の、出蕾日の翌日〜積算の最終日の分だけ引く（全期間・全圃場は引かない）。
 // 茎の行（出蕾日・圃場）を読んでから引くので、写真の署名付き URL と同じ 2 回目の往復に並べる（直列の往復は増やさない）。
 // 計算結果は保存しない（推定の保存は 3-3 から）。
-export async function loadStemRecord(stemId: string): Promise<{ stem: StemView; gdd: StemGdd | null }> {
+// 3-3: 出蕾済みの茎の収穫予測日（estimates の最新 = latest_estimates）も読む。予測は記録・設定・日次の取り込みの後に
+// 再計算して追記されるが、まだ 1 件も無い出蕾済みの茎（再計算の呼び出しが届かなかった等）はここで 1 回計算して追記する。
+export type StemRecordData = { stem: StemView; gdd: StemGdd | null; harvest: HarvestDisplay | null };
+
+export async function loadStemRecord(stemId: string): Promise<StemRecordData> {
   return loadStemInternal(stemId, true);
 }
 
-async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ stem: StemView; gdd: StemGdd | null }> {
+type LatestHarvestRow = {
+  value_date: string | null;
+  lower_date: string | null;
+  upper_date: string | null;
+  inputs: unknown;
+  computed_at: string;
+};
+
+function latestHarvest(supabase: SupabaseServerClient, stemId: string) {
+  return supabase
+    .from("latest_estimates")
+    .select("value_date, lower_date, upper_date, inputs, computed_at")
+    .eq("stem_id", stemId)
+    .eq("kind", "harvest_date")
+    .maybeSingle();
+}
+
+async function loadStemInternal(stemId: string, withGdd: boolean): Promise<StemRecordData> {
   const supabase = await createClient();
 
   // stems → mats は FK が 2 本（mat_id と origin_stem の逆参照）あるので、埋め込む関係を明示する
@@ -56,6 +79,7 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ ste
     { data: observations, error: obsError },
     { data: events, error: evError },
     { data: photos, error: phError },
+    harvestRes,
   ] = await Promise.all([
     getCurrentUser(),
     supabase
@@ -84,6 +108,7 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ ste
       .eq("target_type", "stem")
       .eq("target_id", stemId)
       .order("taken_at", { ascending: false }),
+    withGdd ? latestHarvest(supabase, stemId) : Promise.resolve(null),
   ]);
   const user = userOrRedirect(currentUser);
   if (stemError) throw new Error(`茎を取得できませんでした（${stemError.message}）`);
@@ -109,7 +134,7 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ ste
   // 2 回目の往復: 写真の署名付き URL（非公開バケットなので 1 時間の URL をサーバーで作る。作れない写真は url=null）と、
   // 積算温度の気温（出蕾済みの茎の記録入力のときだけ）。どちらも要るときは並べて取る
   const signedUrlByPath = new Map<string, string>();
-  const [, gdd] = await Promise.all([
+  const [, gdd, harvestRow] = await Promise.all([
     (async () => {
       if (!photos || photos.length === 0) return;
       const { data: signed, error: signError } = await supabase.storage
@@ -131,6 +156,23 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ ste
           mat: matRow,
         })
       : Promise.resolve(null),
+    (async (): Promise<LatestHarvestRow | null> => {
+      if (!withGdd || stemRow.status !== "flowered") return null;
+      if (harvestRes?.error) throw new Error(`収穫予測を取得できませんでした（${harvestRes.error.message}）`);
+      if (harvestRes?.data) return harvestRes.data as LatestHarvestRow;
+      // まだ推定が無い出蕾済みの茎: 1 回計算して追記し、読み直す
+      // （読み直しは estimates から。同じ GET を同じ描画の中で繰り返すと、fetch のメモ化で最初の空の結果が返る）
+      await recomputeHarvestEstimatesQuietly(supabase, { stemIds: [stemId] }, "stem page");
+      const { data } = await supabase
+        .from("estimates")
+        .select("value_date, lower_date, upper_date, inputs, computed_at")
+        .eq("stem_id", stemId)
+        .eq("kind", "harvest_date")
+        .order("computed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return (data as LatestHarvestRow | null) ?? null;
+    })(),
   ]);
 
   const nameOf = (p: unknown) => (p as { display_name: string | null } | null)?.display_name ?? null;
@@ -171,7 +213,7 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<{ ste
     events: eventRows,
     photos: photoRows,
   });
-  return { stem: view, gdd };
+  return { stem: view, gdd, harvest: harvestDisplayFrom(harvestRow) };
 }
 
 // 出蕾済みの茎の積算温度（3-2、src/lib/gdd.ts で計算）。気温は茎の圃場の、出蕾日の翌日〜積算の最終日の分だけ。

@@ -39,6 +39,7 @@ Vercel Cron → Next.js の Route Handler（/api/cron/weather、3-1）
   - キーはサーバー側の環境変数 `SUPABASE_SERVICE_ROLE_KEY` からだけ読む（`NEXT_PUBLIC_` を付けない。ブラウザのバンドルに入らない）。読むのは `import "server-only"` を付けた `src/lib/supabase/service-role.ts` だけで、これを import するのは Cron の Route Handler だけ（画面・Server Action・クライアントのコードからは import しない）
   - Route Handler の認証は `Authorization: Bearer ${CRON_SECRET}`（Vercel Cron の標準）。`CRON_SECRET` が未設定・ヘッダが無い・違うなら 401。proxy は `/api/cron/weather` を /login に転送しない（`src/lib/auth/redirect.ts` の PUBLIC_PATHS。Cron は Cookie を持たない）
   - 圃場の登録時・代表点の変更時（Server Action の `after()`）と、圃場の詳細の「気温を今すぐ取り込む」は、ログイン中のユーザーのクライアント（RLS で自組織の圃場だけ）で取り込む。service_role は使わない
+  - 収穫予測日の再計算（3-3、prediction.md 2 章）も、Cron の中（取り込みの後）だけ service_role。出蕾・被害の同期の後に同期ワーカーが呼ぶ Route Handler `POST /api/predictions/recompute`、Server Action（訂正・圃場や株の被害・予測の設定・今すぐ取り込む）、茎の画面はログイン中のユーザーのクライアント（RLS で自組織の茎だけ）。`/api/predictions/recompute` は PUBLIC_PATHS に入れない（未ログインは /login へ。Route Handler も getUser で 401）
 
 ## 3. データ分離（複数農家対応）
 
@@ -60,6 +61,7 @@ Vercel Cron → Next.js の Route Handler（/api/cron/weather、3-1）
 - API: 予報 API（`https://api.open-meteo.com/v1/forecast`、`past_days=7`）で直近 7 日、過去 API（`https://archive-api.open-meteo.com/v1/archive`）で 5 日より前の確定値。`hourly=temperature_2m,precipitation,wind_speed_10m`、`wind_speed_unit=ms`、`timezone=Asia/Tokyo`。API キー不要。取得は `src/lib/weather/`（fetch を注入できる形）。
 - 取り込みのたびに、圃場の「埋めるべき開始日（登録日と最も古い茎の `started_at` の早い方）〜 昨日」と平年値の材料（過去 10 年分、日次だけ）で確定値のない日を探し、まとめて過去 API で取る。API が失敗した日は次回の対象に残る（欠けた日が埋まる）。
 - 1 回の Cron は約 50 秒で打ち切り（`maxDuration = 60`）、残りは次回に続きから。前回の実行が古い圃場から処理する。過去 API は新しい日から取る。
+- 各圃場の取り込みの後、その圃場の出蕾済みの茎の収穫予測日を再計算して `estimates` に追記する（3-3。前回と同じなら追記しない）。応答の `predictions` に圃場ごとの件数（stems / inserted / unchanged / errors）。
 - 圃場の登録・代表点の変更: Server Action が `after()` で、応答を返した後にその圃場の取り込みを始める（登録の応答を遅くしない）。ここでは埋めるべき期間と直近 7 日だけ取り、10 年分の平年値の材料は次の Cron（または圃場の詳細の「気温を今すぐ取り込む」）で取る。代表点が変わっていたら前の地点の値を消して取り直す。
 - 取り込みの記録（最終実行・件数・最後のエラー）は `weather_sync_status`。圃場の詳細に「気温: 最終取得 ◯月◯日 ◯:◯◯（◯日分）」、失敗の理由、未取得なら「取り込み待ち」。
 - `fields.temperature_offset_c` を加算してから保存する（加えた値は各行の `temperature_offset_c` に残る）。

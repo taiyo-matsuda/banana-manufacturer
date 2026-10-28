@@ -26,10 +26,10 @@ export default function StemPage({ params }: { params: Promise<{ stemId: string 
 
 async function StemRecord({ params }: { params: Promise<{ stemId: string }> }) {
   const { stemId } = await params;
-  const { stem, gdd } = await loadStemRecord(stemId);
+  const { stem, gdd, harvest } = await loadStemRecord(stemId);
   return (
     <AppScreen title="茎の記録" backHref={`/mats/${stem.mat.id}`} backLabel={`株 ${stem.mat.code}`} current="map">
-      <StemRecordClient stem={stem} gdd={gdd} />
+      <StemRecordClient stem={stem} gdd={gdd} harvest={harvest} />
     </AppScreen>
   );
 }

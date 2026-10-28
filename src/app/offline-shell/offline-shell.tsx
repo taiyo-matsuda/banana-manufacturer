@@ -266,7 +266,7 @@ function StemShell({ stemId, history, meta, banner }: { stemId: string; history:
   ) : (
     <AppScreen title={title} backHref={`/mats/${stem.mat.id}`} backLabel={`株 ${stem.mat.code}`} current="map">
       {banner}
-      <StemRecordClient stem={stem} gdd="offline" />
+      <StemRecordClient stem={stem} gdd="offline" harvest="offline" />
     </AppScreen>
   );
 }

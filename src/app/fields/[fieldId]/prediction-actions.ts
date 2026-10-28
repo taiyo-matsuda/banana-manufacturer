@@ -3,11 +3,12 @@
 import { refresh } from "next/cache";
 import { requireUser } from "@/lib/auth/current-user";
 import { type PredictionParamsState, validatePredictionParams } from "@/lib/fields/prediction-params";
+import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// 圃場の詳細の「予測の設定」（3-2）: 圃場 × 品種の基準温度・目標積算温度の上書きを field_cultivar_params に upsert する。
+// 圃場の詳細の「予測の設定」（3-2。保存後の収穫予測日の再計算は 3-3）: 圃場 × 品種の基準温度・目標積算温度の上書きを field_cultivar_params に upsert する。
 // 空欄は null（品種の既定を使う）。organization_id は渡さない（INSERT トリガーが圃場からコピーする）。
 // 他組織の圃場は RLS（fcp_all の with check）で書けない（エラー → 「圃場が見つかりません」）。
 export async function savePredictionParams(prev: PredictionParamsState, formData: FormData): Promise<PredictionParamsState> {
@@ -50,6 +51,9 @@ export async function savePredictionParams(prev: PredictionParamsState, formData
     }
     return fail("圃場が見つかりません");
   }
+
+  // 3-3: 目標積算温度・基準温度が変わったので、この圃場のこの品種の出蕾済みの茎の収穫予測日を再計算する（追記。古い推定は残る）
+  await recomputeHarvestEstimatesQuietly(supabase, { fieldId, cultivarId }, "prediction params");
 
   refresh();
   return { error: null, errors: {}, values, saved: prev.saved + 1, attempts: prev.attempts + 1, message: "保存しました" };

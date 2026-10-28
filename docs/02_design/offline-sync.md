@@ -70,7 +70,7 @@ DB 名 `banana-field-notes`（`src/lib/db/index.ts`）。インスタンスは�
 
 ## 4. 同期
 
-実装: `src/lib/offline/worker.ts`（ループ本体。outbox の読み書きと送信は注入。単体テストあり）、`src/lib/offline/sender.ts`（supabase-js で送る）、`src/lib/offline/sync-client.ts`（起動・多重実行の防止・タイマー）、`src/lib/offline/retry.ts`（失敗の分類・バックオフ。単体テストあり）。
+実装: `src/lib/offline/worker.ts`（ループ本体。outbox の読み書きと送信は注入。単体テストあり）、`src/lib/offline/sender.ts`（supabase-js で送る。3-3: 出蕾・茎の被害を送れたら `POST /api/predictions/recompute` でその茎の収穫予測日を再計算させる。失敗しても送信は成功のまま。prediction.md 2 章）、`src/lib/offline/sync-client.ts`（起動・多重実行の防止・タイマー）、`src/lib/offline/retry.ts`（失敗の分類・バックオフ。単体テストあり）。
 
 - トリガー: アプリ起動時、`online` イベント、画面復帰（`visibilitychange`）、記録直後、手動ボタン（ヘッダの同期状態画面）。全画面のヘッダ `SyncStatus` が起動時に 1 回だけ登録する。
 - 同時に 2 つのワーカーは走らせない（実行中に要求が来たら「終わったらもう一度」の印だけ立てる）。

@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { LinkList, LinkListItem, LinkRow } from "@/components/app/link-list";
+import { NeedsReviewBadge } from "@/components/app/needs-review-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { cumulativeLeaves } from "@/lib/leaves";
+import { formatMonthDay } from "@/lib/prediction/harvest";
 import { applyOutboxToMat, matHoldKey, matServerIds, type MatStemRow } from "@/lib/offline/overlay";
 import { useHeldItems } from "@/lib/offline/use-held-items";
 import { useOutboxForStems } from "@/lib/offline/use-live-query";
@@ -78,6 +80,7 @@ function StemRowBody({ stem }: { stem: MatStemRow }) {
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-medium">{generationLabel(stem.generation)}</span>
         <span className="text-sm text-muted-foreground">第 {stem.generation} 世代</span>
+        {stem.status === "flowered" && stem.harvest?.needsReview && <NeedsReviewBadge data-testid="stem-harvest-review" />}
         {stem.pending && (
           <Badge variant="outline" className="border-warning-foreground/40 bg-warning text-warning-foreground" data-testid="stem-pending">
             未同期
@@ -95,6 +98,18 @@ function StemRowBody({ stem }: { stem: MatStemRow }) {
               {cumulativeLeaves(stem.initial_leaf_count, leavesNew)}
             </span>{" "}
             枚
+          </span>
+        )}
+        {stem.status === "flowered" && stem.harvest && (
+          <span data-testid="stem-harvest-date" data-value-date={stem.harvest.valueDate ?? ""}>
+            {stem.harvest.valueDate ? (
+              <>
+                収穫予測{" "}
+                <span className="text-base font-semibold text-foreground">{formatMonthDay(stem.harvest.valueDate)}ごろ</span>
+              </>
+            ) : (
+              "収穫予測なし"
+            )}
           </span>
         )}
       </span>

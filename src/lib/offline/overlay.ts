@@ -119,6 +119,8 @@ export type MatStemRow = {
   parent_stem_id: string | null;
   observations: MatStemObservation[];
   pending?: boolean; // 未同期の吸芽（サーバーにまだ無い茎）
+  // 3-3: 収穫予測日（estimates の最新。出蕾済みの茎だけ）。オフラインの殻（キャッシュ）には無い
+  harvest?: { valueDate: string | null; needsReview: boolean } | null;
 };
 
 export function applyOutboxToMat(stems: readonly MatStemRow[], items: readonly OutboxItem[]): MatStemRow[] {

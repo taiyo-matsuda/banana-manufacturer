@@ -14,6 +14,7 @@ import {
   validateTargetDamage,
 } from "@/lib/damage";
 import { findInvalidTargets } from "@/lib/fertilize";
+import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
 import { occurredAtFromDate } from "@/lib/stemEvents";
 import { createClient } from "@/lib/supabase/server";
 
@@ -64,6 +65,15 @@ export async function recordTargetDamage(input: TargetDamageInput): Promise<Reco
   if (error && error.code !== "23505") {
     console.error("damage insert failed", { code: error.code, message: error.message });
     return { ok: false, errors: { form: SAVE_FAILED } };
+  }
+
+  // 3-3: severe の圃場・株の被害は、その圃場・株の出蕾済みの茎の収穫予測を「要確認」にする（再計算して追記）
+  if (value.severity === "severe") {
+    await recomputeHarvestEstimatesQuietly(
+      supabase,
+      value.targetType === "field" ? { fieldId: value.targetId } : { matId: value.targetId },
+      "target damage",
+    );
   }
 
   // 開いている画面（圃場・株の詳細の履歴）を取り直す
@@ -134,6 +144,11 @@ export async function recordBulkMatDamage(input: BulkDamageInput): Promise<Recor
   if (error) {
     console.error("bulk damage insert failed", { code: error.code, message: error.message });
     return { ok: false, errors: { form: SAVE_FAILED } };
+  }
+
+  // 3-3: severe なら、その株の出蕾済みの茎の収穫予測を再計算する（圃場の被害で既に要確認だが、inputs に株の被害も残す）
+  if (check.severity === "severe") {
+    await recomputeHarvestEstimatesQuietly(supabase, { fieldId: value.fieldId }, "bulk mat damage");
   }
 
   // 株の詳細（株の記録）とこの画面の候補（記録済みの株を除く）を次に開いたとき取り直す

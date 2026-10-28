@@ -20,7 +20,31 @@ function fail(error: { message: string; code?: string | null; name?: string }, s
   throw toSendError(error, status) satisfies SendError;
 }
 
-export function createSender(db: AppDb, supabase: SupabaseBrowser = createClient()): Sender {
+// 3-3: 出蕾・被害を送れたら、その茎の収穫予測日を再計算させる（/api/predictions/recompute）。
+// 失敗してもイベントの送信は成功のまま（推定は日次の再計算・茎の画面を開いたときに追いつく）。待ってから戻るので、
+// 同期の後の router.refresh() では新しい推定が読める
+export const RECOMPUTE_EVENT_TYPES: readonly string[] = ["bud_emerged", "damage"];
+
+export type RecomputeStem = (stemId: string) => Promise<void>;
+
+export const recomputeStemOverHttp: RecomputeStem = async (stemId) => {
+  try {
+    const res = await fetch("/api/predictions/recompute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ stemId }),
+    });
+    if (!res.ok) console.error("harvest recompute failed", res.status);
+  } catch (e) {
+    console.error("harvest recompute failed", e);
+  }
+};
+
+export function createSender(
+  db: AppDb,
+  supabase: SupabaseBrowser = createClient(),
+  recomputeStem: RecomputeStem = recomputeStemOverHttp,
+): Sender {
   return async (item, progress) => {
     switch (item.kind) {
       case "observation": {
@@ -98,6 +122,7 @@ export function createSender(db: AppDb, supabase: SupabaseBrowser = createClient
           p_note: p.note,
         });
         if (error) fail(error, status);
+        if (RECOMPUTE_EVENT_TYPES.includes(p.type)) await recomputeStem(p.stem_id);
         return;
       }
       case "photo":

@@ -43,7 +43,8 @@ cultivars（全組織で共有）
 例外: E2E 専用組織（組織名が「テスト農園」で始まる）の掃除だけは、組織名で制限した security definer 関数 `e2e_cleanup_fields(prefix)`（`0006_e2e_cleanup.sql`）で観測・イベントごと消す。本番の組織では例外を投げる。
 
 ### 2.3 推定は観測と別
-`estimates` は `model_version` と `computed_at` を持ち、再計算のたびに追記する。最新は `computed_at desc` の先頭。
+`estimates` は `model_version` と `computed_at` を持ち、再計算のたびに追記する。最新は `computed_at desc` の先頭（ビュー `latest_estimates`、0021）。
+追記のみ（0021 で RLS を select / insert だけにした。update / delete のポリシーは無い）。入力も結果も前回と同じなら追記しない（prediction.md 2 章）。
 
 ### 2.4 品種は株の属性
 `mats.cultivar_id` が必須。`fields` に品種は持たない。
@@ -245,6 +246,10 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | inputs | jsonb | 計算に使った入力 |
 | computed_at | timestamptz | |
 
+- 追記のみ（0021）。RLS は自組織の select と insert だけ（update / delete は不可）。日付の推定は lower_date ≤ value_date ≤ upper_date（検査 `estimates_date_order`）
+- `harvest_date`（3-3）: value_date / lower_date / upper_date に予測日と幅（目標 GDD の ±10%）。予測できなかったときは日付が null で `inputs.unavailable_reason`。`model_version` = `harvest-gdd-v1`。inputs の項目は prediction.md 2 章
+- ビュー `latest_estimates`（0021、security_invoker）: 茎 × kind ごとの最新 1 行（`distinct on (stem_id, kind) order by computed_at desc`）。茎の画面・株の詳細の茎一覧が使う
+
 ### recommendations
 | 列 | 型 | 備考 |
 |---|---|---|
@@ -277,7 +282,8 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | organizations | 自組織 | × | × | × |
 | profiles | 自組織 | × | × | × |
 | cultivars | 全員 | × | × | × |
-| fields, field_cultivar_params, soil_*, mats, stems, weather_hourly, weather_daily, estimates, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| fields, field_cultivar_params, soil_*, mats, stems, weather_hourly, weather_daily, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| estimates（0021 から追記のみ） | 自組織 | 自組織 | × | × |
 | weather_sync_status | 自組織 | ×（record_weather_sync() のみ） | 同左 | × |
 | observations, events | 自組織 | 自組織 | superseded_by のみ（トリガーで制限） | × |
 | photos | 自組織 | 自組織 | 自組織（upload_status の更新） | × |
@@ -289,5 +295,5 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | 累計葉数 | `src/lib/leaves.ts` | 画面表示のたびに観測から計算。今週見る株は view `weekly_stems` の合計から（同じ式） |
 | 検算値と確認要否 | 同上 | |
 | 積算温度 | `src/lib/gdd.ts` + weather_daily | |
-| 収穫予測日、果房重量 | `src/lib/prediction/` → estimates に追記 | |
+| 収穫予測日、果房重量 | `src/lib/prediction/` → estimates に追記 | 収穫予測日は 3-3（harvest.ts が計算、recompute.ts が追記） |
 | 提案 | `src/lib/recommendations/` → recommendations に追記 | |
