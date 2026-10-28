@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { FormField } from "@/components/app/form-field";
 import { MatSelectList, MatSelectRow, useMatExclusion } from "@/components/app/mat-select-list";
 import { NumberField } from "@/components/app/number-field";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,19 +49,24 @@ export function FertilizeForm({
   suggestions,
   defaultUnit,
   today,
+  onlyMatId = null,
+  initialAmount = "",
 }: {
   fieldId: string;
   mats: MatItem[];
   suggestions: string[];
   defaultUnit: string;
   today: string;
+  // 3-5: 収穫後の追肥の「実施した」（?mat=）。この株だけを選び、量は圃場の標準量（あれば）を入れておく
+  onlyMatId?: string | null;
+  initialAmount?: string;
 }) {
   const router = useRouter();
   const online = useOnline();
 
   const [date, setDate] = useState(today);
   const [fertilizer, setFertilizer] = useState("");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(initialAmount);
   const [unit, setUnit] = useState(defaultUnit);
   const [overrides, setOverrides] = useState<ReadonlyMap<string, string>>(() => new Map());
   // 確定を 1 回押すまではエラーを出さない（入力途中で赤くしない）
@@ -76,7 +82,10 @@ export function FertilizeForm({
 
   const clearServerErrors = useCallback(() => setServerErrors((e) => (Object.keys(e).length === 0 ? e : {})), []);
   // 外した株（株の一覧は圃場の被害の一括 2-5 と共通の部品 mat-select-list.tsx）
-  const { excluded, toggle, selectAll, selectNone } = useMatExclusion(clearServerErrors);
+  const { excluded, toggle, selectAll, selectNone } = useMatExclusion(
+    clearServerErrors,
+    onlyMatId ? mats.filter((m) => m.id !== onlyMatId).map((m) => m.id) : undefined,
+  );
 
   const matIds = useMemo(() => mats.map((m) => m.id), [mats]);
   const deferredAmount = useDeferredValue(amount);
@@ -200,6 +209,13 @@ export function FertilizeForm({
         openConfirm();
       }}
     >
+      {onlyMatId && mats.some((m) => m.id === onlyMatId) && (
+        <Alert data-testid="fertilize-only-mat">
+          <AlertDescription>
+            収穫後の追肥: {mats.find((m) => m.id === onlyMatId)?.code} だけを選んでいます。ほかの株も入れるときは下の一覧で選んでください
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardContent className="flex flex-col gap-4">
           <FormField id="fertilize-date" label="日付" error={shownError(errors.date)}>

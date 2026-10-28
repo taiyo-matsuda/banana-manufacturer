@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppDb } from "../db";
 import type { createClient } from "../supabase/client";
-import { newLeavesRemovedItem, newStemEventItem } from "./items";
+import { newLeavesRemovedItem, newObservationItem, newStemEventItem } from "./items";
 import { createSender } from "./sender";
 
 // 3-3: 出蕾・茎の被害を送れたら、その茎の収穫予測日を再計算させる（送信に失敗したら呼ばない）。
@@ -53,16 +53,27 @@ describe("createSender の収穫予測の再計算（3-3）", () => {
     expect(calls).toEqual(["stem-1", "stem-1", "stem-1"]);
   });
 
-  it("段数・枯葉処理などでは呼ばない", async () => {
+  it("段数・草丈などでは呼ばない", async () => {
     const { client } = fakeSupabase();
     const calls: string[] = [];
     const send = createSender({} as AppDb, client, async (stemId) => void calls.push(stemId));
     await send(stemEvent("hands_counted"), async () => {});
+    await send(newObservationItem({ id: "o1", createdAt: new Date(), stemId: "stem-1", type: "height_cm", value: 120, observedAt: new Date(), userId: "u" }), async () => {});
+    await send(newObservationItem({ id: "o2", createdAt: new Date(), stemId: "stem-1", type: "pseudostem_girth_cm", value: 50, observedAt: new Date(), userId: "u" }), async () => {});
+    expect(calls).toEqual([]);
+  });
+
+  it("3-5: 枯葉処理・新葉・現在の葉数を送れたら呼ぶ（枯葉処理と検算の「確認」の提案）", async () => {
+    const { client } = fakeSupabase();
+    const calls: string[] = [];
+    const send = createSender({} as AppDb, client, async (stemId) => void calls.push(stemId));
     await send(
       newLeavesRemovedItem({ id: "l1", createdAt: new Date(), stemId: "stem-1", count: 2, occurredAt: new Date(), userId: "u" }),
       async () => {},
     );
-    expect(calls).toEqual([]);
+    await send(newObservationItem({ id: "o1", createdAt: new Date(), stemId: "stem-2", type: "leaves_new", value: 1, observedAt: new Date(), userId: "u" }), async () => {});
+    await send(newObservationItem({ id: "o2", createdAt: new Date(), stemId: "stem-3", type: "leaves_current", value: 12, observedAt: new Date(), userId: "u" }), async () => {});
+    expect(calls).toEqual(["stem-1", "stem-2", "stem-3"]);
   });
 
   it("RPC が失敗したら呼ばない（送信の失敗として投げる）", async () => {

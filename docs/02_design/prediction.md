@@ -99,8 +99,8 @@
 | `debud` | 同上（袋掛けと同時に提案） | 同上 | |
 | `harvest_window` | `harvest_date` の lower が 7 日以内 | lower | 「積算温度が目安に到達」 |
 | `fertilize_after_harvest` | `harvested` が記録され、その株に M 日以内の `fertilized` がない | 収穫日 + M | 「収穫後の追肥」。量は圃場標準＋株差分 |
-| `remove_dead_leaves` | 最後の `leaves_removed` から X 日以上、かつ茎が active / flowered | 今日 | |
-| `inspect` | 累計葉数の検算ずれ ≥ 3、または `damage` の severity が severe / lost | 今日 | ずれの枚数、被害の内容 |
+| `remove_dead_leaves` | 最後の `leaves_removed`（なければ採用・植え付け）から X 日以上、かつ茎が active / flowered | 起点 + X（3-5） | |
+| `inspect` | 累計葉数の検算ずれ ≥ 3、または茎の `damage` の severity が severe（lost は茎が終了するので出さない。3-5） | 今日 | ずれの枚数、被害の内容 |
 
 - 対象が `lost` / `harvested` / `removed` / `transplanted` になった茎の `open` な提案は自動で `dismissed` にする（reason に「対象が終了」）
 - 「実施した」= `done`、「無視」= `dismissed`。どちらも `resolved_at` / `resolved_by` を残す
@@ -119,7 +119,25 @@
 - **いつ評価するか**: 収穫予測日の再計算と同じ入口（2 章「再計算のタイミング」）。加えて、袋掛け・摘蕾・収穫の同期の後にも `POST /api/predictions/recompute` を呼ぶ（`RECOMPUTE_EVENT_TYPES`）。圏外で記録したイベントも、同期ワーカーが送った後にこの経路で評価されて done になる。日次の Cron（圃場ごと）で、日が進んで期限に達した提案が出る。範囲が圃場・株のときは、その中の出蕾済みの茎と open の提案がある茎（終了した茎の提案を閉じるため）を評価する
 - **「実施した」**: 記録画面へ導くだけ（`/stems/[id]?record=bagged` で茎の画面の袋掛けのダイアログを開く。摘蕾は `debudded`、収穫期は `harvested`。開いたら URL から `?record=` を外す）。提案は記録が同期された後の評価で done になる（記録しなければ open のまま。事実の記録を先にする）
 - オフラインの殻のホームでは提案を読まない（「提案はオンラインのときに表示します」）
-- **撤去・株分け（removed / transplanted）での「対象が終了」（3-4 で確認）**: removed / transplanted になるのは吸芽（status = sucker）の芽かき・株分け（0011）だけで、3-4 の提案は出蕾済みの茎にしか出ないため、その経路では閉じる提案が無い（株の撤去 0012 は栽培中・出蕾済みの茎がある株を拒否する）。そのため芽かき・株分け・撤去の後には再評価を呼ばない（呼んでも日次の Cron が範囲の open を閉じる）。**未決（3-5）**: 株が対象の提案（収穫後の追肥）を足すときは、株の撤去（mat_removed）で open を「対象が終了」にするルールと、撤去の Server Action からの再評価を決める
+- **撤去・株分け（removed / transplanted）での「対象が終了」（3-4 で確認）**: removed / transplanted になるのは吸芽（status = sucker）の芽かき・株分け（0011）だけで、3-4 の提案は出蕾済みの茎にしか出ないため、その経路では閉じる提案が無い（株の撤去 0012 は栽培中・出蕾済みの茎がある株を拒否する）。そのため芽かき・株分けの後には再評価を呼ばない（呼んでも日次の Cron が範囲の open を閉じる）。株の撤去は 3-5 で決めた（下の「株が対象の提案」）
+
+### 実装（3-5）: 収穫後の追肥・枯葉処理・確認
+ルールは `rules.ts` に足した（茎: `STEM_RULES` に枯葉処理・確認 2 つ、株: `MAT_RULES` に収穫後の追肥）。評価は `evaluate.ts` の `evaluateStemRecommendations` / `evaluateMatRecommendations`（同じ判定を対象の種類ごとに回す）。DB は 0023（設定の列）。
+
+- **株が対象の提案の扱い（3-4 の未決を確定）**: `target_type = 'mat'`・`target_id = mats.id` で同じ `recommendations` に入れる（0022 の unique・トリガー・RLS・`open_recommendations` はそのまま。organization_id は 0001 の `set_org_from_target` が株からコピー）。
+  - 対象: 茎の id で評価するときはその茎の株、圃場・株の範囲ではその中の株（撤去済みを含む）
+  - 「対象が終了」: 株が撤去（`mats.status = 'removed'`）されたら open を dismissed（`resolved_event_id` / `resolved_by` は `mat_removed` のイベントと記録者）。撤去の Server Action（`removeMat`）の後に、その株の範囲で提案を評価し直す（日次の Cron でも閉じる）
+  - 一覧の対象の表示は株コードだけ（茎の世代なし）。「実施した」は施肥の記録 `/fields/[fieldId]/fertilize?mat=<株>`
+- **収穫後の追肥（`fertilize_after_harvest`、株）**: 撤去していない株で、最後の収穫の日（その株の茎の `stems.harvested_at` の最大）以降（同じ日を含む）に `fertilized` がない。**収穫を記録したらすぐ出す**（期限は収穫日 + M。M は圃場の設定、既定 7 日）。理由は「収穫（◯月◯日）から M 日以内に追肥」。`rule_key = harvest:<収穫日>`（同じ株・同じ日の収穫は 1 件。次の収穫で新しい提案）。done は収穫日以降の施肥（2-4 の一括入力を含む。施肥は株単位のイベントなので、一括入力も株ごとに done）。open の間に同じ株の別の茎を収穫しても 2 件目は作らない（同じ kind の open は 1 件。次の施肥で閉じ、その施肥が後の収穫より後なら新しい提案も出ない）。期限を過ぎても施肥がなければ open のまま
+  - **量**: 圃場の標準量（`fertilizer_standard_amount` + `_unit`）。理由に焼き込まず、一覧の表示のたびに今の設定を読む（「量: 圃場の標準量 0.5 kg」。未設定なら量を出さず「圃場の標準量を設定してください」）。「株差分」（株ごとの補正）は MVP では持たない（株の属性・設定がない。必要になったら決める）
+  - 再評価: 収穫の同期の後（茎の id → その株も評価）、施肥の一括入力の確定の後（`recordFertilization` が圃場の範囲で提案だけを評価し直す）、株の撤去の後、日次の Cron。施肥の一括入力はオンライン前提（2-4）なので、圏外で記録した施肥は無い
+- **枯葉処理（`remove_dead_leaves`、茎）**: 栽培中・出蕾済み（active / flowered）の茎で、起点（最後の `leaves_removed` の日、なければ採用日 `adopted_at`、なければ発生・植え付けの日 `started_at`）から X 日以上（X は圃場の設定、既定 30 日）。期限は起点 + X（表の「今日」ではなく、袋掛けと同じく「出すべきになった日」。日次の Cron で出せば当日と同じ）。`rule_key = leaves_removed:<日付>` / `start:<日付>`。done は起点より後（起点が採用・植え付けなら同じ日も含む）の枯葉処理。枯葉処理のたびに起点が進み、X 日後に次の回の提案になる。起点の枯葉処理を同じ日のまま訂正しても done にしない（新しい処理ではない）
+- **確認（`inspect`、茎）**: 2 つのルールで出す。同じ kind なので open は 1 件まで（重い被害が先。閉じたら次の評価でもう一方）。どちらも期限は今日（作った日）
+  - **重い被害**: 栽培中・出蕾済みの茎の最新の茎の被害（`damage`、target stem）が severe。理由「重い被害（倒伏・重、◯月◯日）を確認してください」、`rule_key = damage:<イベント id>`。**done**: その被害の記録を訂正した（`superseded_by` を辿った訂正後のイベントとその記録者）、またはその後に茎の被害を記録し直した（喪失以外。確認の結果を被害の記録で残す）。喪失（lost）は茎が終了するので「対象が終了」で閉じる。圃場・株の被害（2-5）は茎の severe と違い、ここでは出さない（収穫予測の「要確認」は 3-3 のとおり）
+  - **累計葉数の検算ずれ**: 栽培中・出蕾済みの茎で、1-6 の検算（累計 = 初期葉数 + Σ新葉、検算 = 最新の現在の葉数 + それまでの枯葉処理。`src/lib/leaves.ts`）の差が 3 枚以上。茎の画面の警告「確認してください（累計 X、検算 Y）」と同じ式。理由「累計葉数の検算が N 枚ずれています（累計 X、検算 Y）」、`rule_key = leaf_check:<現在の葉数の観測 id>`。**done**: 現在の葉数を記録し直した（新しい検算。まだずれていれば新しい観測の鍵で次の確認）、その観測を訂正した（訂正した行の記録者）、または新葉・初期葉数の訂正などでずれが 3 枚未満になった（「検算のずれが解消」）。done の根拠が観測のときは `resolved_event_id` は null（events ではないため）
+- **再計算の対象の追加**: 同期ワーカーは枯葉処理（`leaves_removed`）と葉数の観測（`leaves_new` / `leaves_current`）を送れたときも `POST /api/predictions/recompute` を呼ぶ（`RECOMPUTE_EVENT_TYPES` / `RECOMPUTE_OBSERVATION_TYPES`）。訂正は種類によらず（観測の訂正も）その茎を評価し直す。範囲（圃場・株）の評価の対象の茎は、出蕾済みだけでなく栽培中も含める
+- **設定（圃場ごと、0023）**: `fertilize_after_harvest_days`（1〜60、空なら 7）、`dead_leaves_interval_days`（1〜365、空なら 30）、`fertilizer_standard_amount` / `fertilizer_standard_unit`（既定なし）。圃場の詳細の「提案の設定」で変え、保存の後にその圃場の提案を評価し直す
+- **注意（1-6 の検算の式）**: 検算は「最新の現在の葉数」と「今の累計」を比べるので、現在の葉数を記録した後に新葉を 3 枚以上記録すると（実際にはずれていなくても）ずれと判定され、確認が出る（茎の画面の警告も同じ）。現在の葉数を記録し直せば done になる。式を「現在の葉数を記録した時点の累計」と比べる形に変えるかは未決（1-6 の変更になるため 3-5 では変えない）
 
 ## 7. 被害による予測の見直し
 

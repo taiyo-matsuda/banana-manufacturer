@@ -25,3 +25,16 @@ export async function recomputeDerivedQuietly(db: SupabaseClient, scope: Recompu
     return null;
   }
 }
+
+// 提案だけを評価し直す（3-5: 施肥の一括入力・株の撤去の後。収穫予測日には関係しない記録なので推定は計算しない）。
+// 例外を投げずにログへ（記録そのものは成功させる。提案は次の再計算・日次の Cron で追いつく）
+export async function recomputeRecommendationsQuietly(db: SupabaseClient, scope: RecomputeScope, label: string): Promise<RecommendationResult | null> {
+  try {
+    const r = await recomputeRecommendations(db, scope);
+    if (r.errors.length > 0) console.error(`recommendations (${label}) errors`, r.errors);
+    return r;
+  } catch (e) {
+    console.error(`recommendations (${label}) failed`, e);
+    return null;
+  }
+}

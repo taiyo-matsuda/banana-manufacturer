@@ -39,7 +39,7 @@ Vercel Cron → Next.js の Route Handler（/api/cron/weather、3-1）
   - キーはサーバー側の環境変数 `SUPABASE_SERVICE_ROLE_KEY` からだけ読む（`NEXT_PUBLIC_` を付けない。ブラウザのバンドルに入らない）。読むのは `import "server-only"` を付けた `src/lib/supabase/service-role.ts` だけで、これを import するのは Cron の Route Handler だけ（画面・Server Action・クライアントのコードからは import しない）
   - Route Handler の認証は `Authorization: Bearer ${CRON_SECRET}`（Vercel Cron の標準）。`CRON_SECRET` が未設定・ヘッダが無い・違うなら 401。proxy は `/api/cron/weather` を /login に転送しない（`src/lib/auth/redirect.ts` の PUBLIC_PATHS。Cron は Cookie を持たない）
   - 圃場の登録時・代表点の変更時（Server Action の `after()`）と、圃場の詳細の「気温を今すぐ取り込む」は、ログイン中のユーザーのクライアント（RLS で自組織の圃場だけ）で取り込む。service_role は使わない
-  - 収穫予測日の再計算（3-3、prediction.md 2 章）も、Cron の中（取り込みの後）だけ service_role。出蕾・被害の同期の後に同期ワーカーが呼ぶ Route Handler `POST /api/predictions/recompute`、Server Action（訂正・圃場や株の被害・予測の設定・今すぐ取り込む）、茎の画面はログイン中のユーザーのクライアント（RLS で自組織の茎だけ）。3-4 の提案の評価（`src/lib/derived.ts`）も同じ入口・同じクライアントで、収穫予測日の再計算の後に走る。`/api/predictions/recompute` は PUBLIC_PATHS に入れない（未ログインは /login へ。Route Handler も getUser で 401）
+  - 収穫予測日の再計算（3-3、prediction.md 2 章）も、Cron の中（取り込みの後）だけ service_role。出蕾・被害の同期の後に同期ワーカーが呼ぶ Route Handler `POST /api/predictions/recompute`、Server Action（訂正・圃場や株の被害・予測の設定・今すぐ取り込む）、茎の画面はログイン中のユーザーのクライアント（RLS で自組織の茎だけ）。3-4 の提案の評価（`src/lib/derived.ts`）も同じ入口・同じクライアントで、収穫予測日の再計算の後に走る（3-5: 施肥の一括入力・株の撤去の Server Action は提案だけを評価し直す）。`/api/predictions/recompute` は PUBLIC_PATHS に入れない（未ログインは /login へ。Route Handler も getUser で 401）
 
 ## 3. データ分離（複数農家対応）
 

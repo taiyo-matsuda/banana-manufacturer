@@ -1,22 +1,25 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { RECOMMENDATION_PARAMS_COLUMNS, type RecommendationParamsRow } from "@/lib/recommendations/settings";
 import { createClient } from "@/lib/supabase/server";
 import { RecommendationParamsForm } from "./recommendation-params-form";
 
 // 圃場の詳細の「提案の設定」（3-4、prediction.md 6 章）: 袋掛け・摘蕾の提案を出す日数 N（出蕾から）と、収穫期の提案を出す日数
 // （収穫予測の早い日の何日前から）の圃場ごとの値（field_recommendation_params）。空欄なら暫定の既定値（14 日・7 日）。
+// 3-5: 収穫後の追肥の期限 M（既定 7 日）・枯葉処理の間隔 X（既定 30 日）・追肥の標準量（既定なし）も同じ表。
 // オフラインの殻（2-9）には出さない（field-detail-view.tsx の外。サーバーで読む）。
 export async function RecommendationSettingsSection({ fieldId }: { fieldId: string }) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("field_recommendation_params")
-    .select("bag_after_days, harvest_window_days")
+    .select(RECOMMENDATION_PARAMS_COLUMNS)
     .eq("field_id", fieldId)
     .maybeSingle();
-  const text = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(v));
+  const text = (v: number | string | null | undefined) => (v === null || v === undefined ? "" : String(Number(v)));
+  const row = (data ?? null) as RecommendationParamsRow | null;
 
   return (
-    <Card data-testid="recommendation-settings">
+    <Card id="recommendation-settings" className="scroll-mt-16" data-testid="recommendation-settings">
       <CardHeader>
         <CardTitle>提案の設定</CardTitle>
       </CardHeader>
@@ -28,8 +31,14 @@ export async function RecommendationSettingsSection({ fieldId }: { fieldId: stri
         ) : (
           <RecommendationParamsForm
             fieldId={fieldId}
-            bagAfterDays={text(data?.bag_after_days as number | null | undefined)}
-            harvestWindowDays={text(data?.harvest_window_days as number | null | undefined)}
+            values={{
+              bagAfterDays: text(row?.bag_after_days),
+              harvestWindowDays: text(row?.harvest_window_days),
+              fertilizeAfterHarvestDays: text(row?.fertilize_after_harvest_days),
+              deadLeavesIntervalDays: text(row?.dead_leaves_interval_days),
+              standardAmount: text(row?.fertilizer_standard_amount),
+              standardUnit: row?.fertilizer_standard_unit ?? "",
+            }}
           />
         )}
       </CardContent>

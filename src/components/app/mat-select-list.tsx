@@ -14,8 +14,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 export type SelectableMat = { id: string; code: string };
 
 // 外した株の状態と操作。onChange は選択が変わるたびに呼ばれる（画面側でサーバーのエラー表示を消すなど）
-export function useMatExclusion(onChange?: () => void) {
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
+// initialExcluded: 最初に外しておく株（3-5: 収穫後の追肥の「実施した」で、その株だけを選んだ状態で開く）
+export function useMatExclusion(onChange?: () => void, initialExcluded?: readonly string[]) {
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set(initialExcluded ?? []));
   const toggle = useCallback(
     (id: string, include: boolean) => {
       onChange?.();

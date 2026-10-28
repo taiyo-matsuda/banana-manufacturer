@@ -17,7 +17,8 @@ export function recommendationKindLabel(kind: string): string {
   return RECOMMENDATION_KIND_LABELS[kind as RecommendationKind] ?? kind;
 }
 
-// 「実施した」で開く記録（茎の画面のイベント。?record= で記録のダイアログを開く）
+// 「実施した」で開く記録（茎の画面のイベント。?record= で記録のダイアログを開く）。
+// 3-5: 枯葉処理・確認は茎の画面（枯葉処理の入力・葉数の記録・被害の記録がある）、収穫後の追肥は圃場の施肥の記録（その株だけを選んだ状態）
 const RECORD_EVENT: Partial<Record<RecommendationKind, string>> = {
   bag: "bagged",
   debud: "debudded",
@@ -36,10 +37,12 @@ export type OpenRecommendationRow = {
   generation: number | null;
   mat_id: string | null;
   mat_code: string | null;
+  field_id: string | null;
   field_name: string | null;
 };
 
-export function recordHref(row: Pick<OpenRecommendationRow, "kind" | "stem_id" | "mat_id">): string | null {
+export function recordHref(row: Pick<OpenRecommendationRow, "kind" | "stem_id" | "mat_id"> & { field_id?: string | null }): string | null {
+  if (row.kind === "fertilize_after_harvest" && row.mat_id && row.field_id) return `/fields/${row.field_id}/fertilize?mat=${row.mat_id}`;
   const event = RECORD_EVENT[row.kind as RecommendationKind];
   if (event && row.stem_id) return `/stems/${row.stem_id}?record=${event}`;
   if (row.stem_id) return `/stems/${row.stem_id}`;

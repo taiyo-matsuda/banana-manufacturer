@@ -24,7 +24,10 @@ function fail(error: { message: string; code?: string | null; name?: string }, s
 // 3-4: 同じ呼び出しで提案も評価する。袋掛け・摘蕾・収穫を送れたら対応する提案が done、喪失（被害）なら dismissed になる。
 // 失敗してもイベントの送信は成功のまま（推定は日次の再計算・茎の画面を開いたときに追いつく）。待ってから戻るので、
 // 同期の後の router.refresh() では新しい推定が読める
-export const RECOMPUTE_EVENT_TYPES: readonly string[] = ["bud_emerged", "damage", "bagged", "debudded", "harvested"];
+// 3-5: 収穫（収穫後の追肥は株が対象。再計算は茎の株も評価する）に加え、枯葉処理（events への直接の追記）と、
+// 葉数の観測（新葉・現在の葉数。検算の「確認」）も送れたら再計算させる
+export const RECOMPUTE_EVENT_TYPES: readonly string[] = ["bud_emerged", "damage", "bagged", "debudded", "harvested", "leaves_removed"];
+export const RECOMPUTE_OBSERVATION_TYPES: readonly string[] = ["leaves_new", "leaves_current"];
 
 export type RecomputeStem = (stemId: string) => Promise<void>;
 
@@ -57,6 +60,7 @@ export function createSender(
             { onConflict: "id", ignoreDuplicates: true },
           );
         if (error) fail(error, status);
+        if (RECOMPUTE_OBSERVATION_TYPES.includes(p.type)) await recomputeStem(p.stem_id);
         return;
       }
       case "event": {
@@ -77,6 +81,7 @@ export function createSender(
               { onConflict: "id", ignoreDuplicates: true },
             );
           if (error) fail(error, status);
+          if (RECOMPUTE_EVENT_TYPES.includes(p.type)) await recomputeStem(p.target_id);
           return;
         }
         if (p.method === "record_sucker_emerged") {

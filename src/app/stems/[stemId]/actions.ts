@@ -53,6 +53,9 @@ export async function correctObservation(input: CorrectObservationInput): Promis
     console.error("correct_observation failed", { code: error.code, message: error.message });
     return { ok: false, error: FAILED };
   }
+  // 3-5: 葉数を直したら、その茎の検算の「確認」を評価し直す（ずれが解消・訂正で done）
+  const { data: corrected } = await supabase.from("observations").select("stem_id").eq("id", input.newId).maybeSingle();
+  if (corrected) await recomputeDerivedQuietly(supabase, { stemIds: [corrected.stem_id as string] }, "observation correction");
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -87,11 +90,10 @@ export async function correctStemEvent(input: CorrectStemEventInput): Promise<Co
     console.error("correct_stem_event failed", { code: error.code, message: error.message });
     return { ok: false, error: FAILED };
   }
-  // 3-3: 出蕾日・被害の程度を直したら、その茎の収穫予測日を再計算する（追記。前回と同じなら追記しない）
-  if (input.type === "bud_emerged" || input.type === "damage") {
-    const { data: corrected } = await supabase.from("events").select("target_id").eq("id", input.newId).maybeSingle();
-    if (corrected) await recomputeDerivedQuietly(supabase, { stemIds: [corrected.target_id as string] }, "correction");
-  }
+  // 3-3: 出蕾日・被害の程度を直したら、その茎の収穫予測日を再計算する（追記。前回と同じなら追記しない）。
+  // 3-5: 枯葉処理・収穫・被害などの訂正でも提案が変わる（枯葉処理の起点、収穫後の追肥の収穫日、確認の done）ので、種類によらず評価し直す
+  const { data: corrected } = await supabase.from("events").select("target_id").eq("id", input.newId).maybeSingle();
+  if (corrected) await recomputeDerivedQuietly(supabase, { stemIds: [corrected.target_id as string] }, "correction");
   revalidatePath("/", "layout");
   return { ok: true };
 }

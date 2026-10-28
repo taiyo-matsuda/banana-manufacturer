@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { recomputeRecommendationsQuietly } from "@/lib/derived";
 import {
   type FertilizeSubmission,
   fertilizedEventRows,
@@ -56,7 +57,10 @@ export async function recordFertilization(input: FertilizeSubmission): Promise<R
   if (!field) return { ok: false, errors: { form: "圃場が見つかりません" } };
 
   const total = sumAmounts(value.items.map((i) => i.amount));
-  if ((existing ?? []).length > 0) return { ok: true, count: value.items.length, total };
+  if ((existing ?? []).length > 0) {
+    await recomputeRecommendationsQuietly(supabase, { fieldId: value.fieldId }, "fertilize (resend)");
+    return { ok: true, count: value.items.length, total };
+  }
 
   const allowed = new Set((mats ?? []).map((m) => m.id as string));
   if (findInvalidTargets(value.items.map((i) => i.matId), allowed).length > 0) {
@@ -70,6 +74,9 @@ export async function recordFertilization(input: FertilizeSubmission): Promise<R
     console.error("fertilized insert failed", { code: error.code, message: error.message });
     return { ok: false, errors: { form: "保存できませんでした。時間をおいて再度お試しください" } };
   }
+
+  // 3-5: 収穫後の追肥の提案を閉じる（その株に収穫日以降の施肥があれば done。prediction.md 6 章）
+  await recomputeRecommendationsQuietly(supabase, { fieldId: value.fieldId }, "fertilize");
 
   // 株の詳細（施肥の履歴）と、この画面の肥料名の候補・単位の既定値を次に開いたとき取り直す
   revalidatePath("/", "layout");

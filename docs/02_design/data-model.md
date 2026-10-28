@@ -274,9 +274,12 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 |---|---|
 | bag_after_days | 袋掛け・摘蕾の提案を出す日数 N（出蕾から）。1〜60。null は既定の 14 |
 | harvest_window_days | 収穫期の提案を出す日数（収穫予測の下限の何日前から）。0〜30。null は既定の 7 |
+| fertilize_after_harvest_days | 3-5（0023）。収穫後の追肥の期限 M（収穫から M 日）。1〜60。null は既定の 7 |
+| dead_leaves_interval_days | 3-5（0023）。枯葉処理の間隔 X（最後の枯葉処理、なければ採用・植え付けから）。1〜365。null は既定の 30 |
+| fertilizer_standard_amount, fertilizer_standard_unit | 3-5（0023）。収穫後の追肥の圃場の標準量（1 株あたり）と単位（kg / g / L / mL）。両方そろうか両方 null（既定値は置かない）。量の範囲は施肥の一括入力と同じ（0 より大きく 100,000 以下） |
 | updated_at | |
 
-3-5 で追肥の期限 M・枯葉処理の間隔 X・圃場の標準量の列を足す。
+0023 で `weekly_stems` を service_role にも grant した（日次の Cron の提案の評価が検算の Σ新葉に使う）。
 
 ### open_recommendations（view、3-4・0022）
 ホームの「提案」用。open の提案に、対象の茎（`stem_id, generation, stem_status`）・株（`mat_id, mat_code`）・圃場（`field_id, field_name`）を left join で付ける（対象が株・圃場の提案は茎の列が null）。`security_invoker`。

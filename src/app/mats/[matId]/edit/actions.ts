@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { type MatEditInput, matUpdateErrorMessage, type UpdateMatState, validateMatEditInput } from "@/lib/mats/edit";
 import { parseRemoveReason } from "@/lib/mats/remove";
+import { recomputeRecommendationsQuietly } from "@/lib/derived";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,6 +100,8 @@ export async function removeMat(input: { eventId: string; matId: string; reason:
     console.error("remove_mat failed", { code: error.code, message: error.message });
     return { ok: false, error: "撤去を保存できませんでした。時間をおいて再度お試しください" };
   }
+  // 3-5: 撤去した株の open の提案（収穫後の追肥）を「対象が終了」で閉じる（prediction.md 6 章）
+  await recomputeRecommendationsQuietly(supabase, { matId: input.matId }, "remove mat");
   // 撤去した株は地図・株分けの地図から消え、株の詳細は「撤去済み」になる。訪問済みの画面も次に開いたとき取り直す
   revalidatePath("/", "layout");
   return { ok: true };

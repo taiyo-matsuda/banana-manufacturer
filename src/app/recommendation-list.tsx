@@ -8,29 +8,31 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   dueLabel,
-  type OpenRecommendationRow,
   recommendationKindLabel,
   recordHref,
   targetLabel,
 } from "@/lib/recommendations/display";
+import { STANDARD_AMOUNT_MISSING } from "@/lib/recommendations/settings";
 import { todayJst } from "@/lib/stemEvents";
+import type { RecommendationListRow } from "./recommendations/data";
 import { dismissRecommendation } from "./recommendation-actions";
 
 // ホームの「提案」と /recommendations（3-4、screens.md 1）の一覧。行は期限順（サーバーで並べ替え済み）。
 // 各行: 種類・対象（株コード・茎）・理由・期限、「実施した」（記録画面へ。袋掛けなら茎の画面の袋掛けのダイアログ）と「無視」。
 // 「実施した」は記録画面を開くだけで、提案は対応するイベントが記録・同期された後の再計算で自動で done になる（事実が先）。
 // 「無視」は確認してから dismissed にする（同じ提案は再び出ない）。
+// 3-5: 収穫後の追肥の行は今の圃場の標準量（未設定なら「圃場の標準量を設定してください」と圃場の詳細へのリンク）を出す。
 // total / allHref: ホームは上位の数件と「すべて見る（N 件）」（/recommendations）。省略すると全件の一覧
 export function RecommendationList({
   rows,
   total,
   allHref,
 }: {
-  rows: OpenRecommendationRow[];
+  rows: RecommendationListRow[];
   total?: number;
   allHref?: string;
 }) {
-  const [confirming, setConfirming] = useState<OpenRecommendationRow | null>(null);
+  const [confirming, setConfirming] = useState<RecommendationListRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const today = todayJst();
@@ -56,6 +58,8 @@ export function RecommendationList({
               data-id={r.id}
               data-kind={r.kind}
               data-stem-id={r.stem_id ?? ""}
+              data-mat-id={r.mat_id ?? ""}
+              data-target-type={r.target_type}
               data-due-at={r.due_at ?? ""}
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -66,6 +70,17 @@ export function RecommendationList({
                 {r.field_name && <span className="text-sm text-muted-foreground">{r.field_name}</span>}
               </div>
               {r.reason && <p data-testid="recommendation-reason">{r.reason}</p>}
+              {r.amount_label && (
+                <p data-testid="recommendation-amount" className={r.amount_label === STANDARD_AMOUNT_MISSING ? "text-muted-foreground" : undefined}>
+                  {r.amount_label === STANDARD_AMOUNT_MISSING && r.field_id ? (
+                    <Link href={`/fields/${r.field_id}#recommendation-settings`} className="underline underline-offset-4">
+                      {r.amount_label}
+                    </Link>
+                  ) : (
+                    r.amount_label
+                  )}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground" data-testid="recommendation-due">
                 {dueLabel(r.due_at, today)}
               </p>

@@ -10,12 +10,17 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 // 圃場の詳細の「提案の設定」（3-4）: 袋掛け・摘蕾の日数 N と収穫期の日数を field_recommendation_params に upsert し、
 // この圃場の提案を評価し直す（N を短くすると、その日数に達した茎に提案が出る。すでに出ている提案は閉じない）。
+// 3-5: 収穫後の追肥の期限 M・枯葉処理の間隔 X・追肥の標準量（量と単位。量が空なら単位も null）も同じ行に保存する。
 // 空欄は null（既定値）。organization_id は渡さない（INSERT トリガーが圃場からコピーする）。他組織の圃場は RLS で書けない。
 export async function saveRecommendationParams(prev: RecommendationParamsState, formData: FormData): Promise<RecommendationParamsState> {
   const fieldId = String(formData.get("fieldId") ?? "");
   const values = {
     bagAfterDays: String(formData.get("bagAfterDays") ?? ""),
     harvestWindowDays: String(formData.get("harvestWindowDays") ?? ""),
+    fertilizeAfterHarvestDays: String(formData.get("fertilizeAfterHarvestDays") ?? ""),
+    deadLeavesIntervalDays: String(formData.get("deadLeavesIntervalDays") ?? ""),
+    standardAmount: String(formData.get("standardAmount") ?? ""),
+    standardUnit: String(formData.get("standardUnit") ?? ""),
   };
   const fail = (error: string | null, errors: RecommendationParamsState["errors"] = {}): RecommendationParamsState => ({
     error,
@@ -36,7 +41,15 @@ export async function saveRecommendationParams(prev: RecommendationParamsState, 
   const { data, error } = await supabase
     .from("field_recommendation_params")
     .upsert(
-      { field_id: fieldId, bag_after_days: validation.value.bagAfterDays, harvest_window_days: validation.value.harvestWindowDays },
+      {
+        field_id: fieldId,
+        bag_after_days: validation.value.bagAfterDays,
+        harvest_window_days: validation.value.harvestWindowDays,
+        fertilize_after_harvest_days: validation.value.fertilizeAfterHarvestDays,
+        dead_leaves_interval_days: validation.value.deadLeavesIntervalDays,
+        fertilizer_standard_amount: validation.value.standardAmount,
+        fertilizer_standard_unit: validation.value.standardUnit,
+      },
       { onConflict: "field_id" },
     )
     .select("field_id")

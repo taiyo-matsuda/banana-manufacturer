@@ -35,6 +35,10 @@ type RecRow = {
   organization_id: string;
 };
 
+// 3-4 の種類だけ（3-5 の枯葉処理・確認も同じ茎に出る。茎は植え付けから 150 日で、出蕾の記録は現在の葉数も残すため。
+// 3-5 の提案は recommendations-after-harvest.spec.ts）
+const KINDS_3_4 = ["bag", "debud", "harvest_window"];
+
 async function recommendations(stemId: string): Promise<RecRow[]> {
   const supabase = await supabaseAsA();
   const { data, error } = await supabase
@@ -42,6 +46,7 @@ async function recommendations(stemId: string): Promise<RecRow[]> {
     .select("id, kind, target_type, target_id, rule_key, due_at, reason, status, resolved_at, resolved_by, resolution_note, resolved_event_id, organization_id")
     .eq("target_type", "stem")
     .eq("target_id", stemId)
+    .in("kind", KINDS_3_4)
     .order("kind");
   if (error) throw new Error(`recommendations を読めません: ${error.message}`);
   return (data ?? []) as RecRow[];
@@ -281,7 +286,7 @@ test("完了条件 1（設定）: N は圃場ごとの設定。圃場の詳細�
   await recordBudDirect(stemId, budDate);
   // 既定の 14 日では出ない
   const first = await recompute(page, stemId);
-  expect(first.recommendations).toMatchObject({ stems: 1, created: 0, errors: [] });
+  expect(first.recommendations).toMatchObject({ stems: 1, errors: [] });
   expect(await recommendations(stemId)).toEqual([]);
 
   await page.goto(`/fields/${field.id}`);
