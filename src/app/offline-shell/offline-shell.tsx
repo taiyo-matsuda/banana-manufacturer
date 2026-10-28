@@ -29,7 +29,7 @@ import { formatDateTime } from "@/lib/stems/records";
 import { buildStemView } from "@/lib/stems/view";
 import { WEEKLY_HOME_LIMIT } from "@/lib/weekly";
 import { FieldDetailView } from "@/app/fields/[fieldId]/field-detail-view";
-import { FieldsCardView, NearbyCard, OrganizationView, WeeklyCardFrame } from "@/app/home-sections";
+import { FieldsCardView, NearbyCard, OrganizationView, RecommendationsCardFrame, WeeklyCardFrame } from "@/app/home-sections";
 import { MatDetailScreen } from "@/app/mats/[matId]/mat-detail-view";
 import { StemHistoryClient } from "@/app/stems/[stemId]/history/stem-history-client";
 import { StemRecordClient } from "@/app/stems/[stemId]/stem-record-client";
@@ -186,6 +186,11 @@ function HomeShell({ meta, banner }: { meta: SyncMeta; banner: React.ReactNode }
       {banner}
       <DeviceOwner userId={meta.user_id} />
       <OrganizationView organizationName={meta.organization_name} displayName={meta.display_name} />
+      <RecommendationsCardFrame>
+        <p className="text-muted-foreground" data-testid="recommendations-offline">
+          提案はオンラインのときに表示します
+        </p>
+      </RecommendationsCardFrame>
       <WeeklyCardFrame>{data ? <WeeklyList rows={data.weekly} limit={WEEKLY_HOME_LIMIT} /> : <LoadingText />}</WeeklyCardFrame>
       <NearbyCard />
       {data ? <FieldsCardView fields={data.fields} error={null} /> : <LoadingText />}

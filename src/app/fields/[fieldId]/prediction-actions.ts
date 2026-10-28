@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { requireUser } from "@/lib/auth/current-user";
 import { type PredictionParamsState, validatePredictionParams } from "@/lib/fields/prediction-params";
-import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
+import { recomputeDerivedQuietly } from "@/lib/derived";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,7 +53,7 @@ export async function savePredictionParams(prev: PredictionParamsState, formData
   }
 
   // 3-3: 目標積算温度・基準温度が変わったので、この圃場のこの品種の出蕾済みの茎の収穫予測日を再計算する（追記。古い推定は残る）
-  await recomputeHarvestEstimatesQuietly(supabase, { fieldId, cultivarId }, "prediction params");
+  await recomputeDerivedQuietly(supabase, { fieldId, cultivarId }, "prediction params");
 
   refresh();
   return { error: null, errors: {}, values, saved: prev.saved + 1, attempts: prev.attempts + 1, message: "保存しました" };

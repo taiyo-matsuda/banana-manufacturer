@@ -7,6 +7,7 @@ import type { EventRow } from "@/lib/stems/records";
 import { createClient } from "@/lib/supabase/server";
 import { FieldDetailView } from "./field-detail-view";
 import { PredictionSettingsSection } from "./prediction-settings";
+import { RecommendationSettingsSection } from "./recommendation-settings";
 import { WeatherStatusSection } from "./weather-status";
 
 // 「気温を今すぐ取り込む」（3-1、weather-actions.ts）は 10 年分の平年値の材料を取ると十数秒かかる。
@@ -71,6 +72,10 @@ async function FieldDetail({ params }: { params: Promise<{ fieldId: string }> })
       {/* 予測の設定（3-2。圃場 × 品種の基準温度・目標積算温度）。オフラインの殻には出さない */}
       <Suspense fallback={<LoadingText>予測の設定を読み込み中…</LoadingText>}>
         <PredictionSettingsSection fieldId={field.id} />
+      </Suspense>
+      {/* 提案の設定（3-4。袋掛け・摘蕾の日数 N、収穫期の日数）。オフラインの殻には出さない */}
+      <Suspense fallback={<LoadingText>提案の設定を読み込み中…</LoadingText>}>
+        <RecommendationSettingsSection fieldId={field.id} />
       </Suspense>
     </>
   );

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { FormField } from "@/components/app/form-field";
 import { NumberField } from "@/components/app/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,6 +19,7 @@ import {
   DAMAGE_KINDS,
   DAMAGE_SEVERITIES,
   DAMAGE_SEVERITY_LABELS,
+  isStemEventType,
   occurredAtFromDate,
   parseEventInput,
   STEM_EVENT_LABELS,
@@ -48,6 +50,24 @@ export function EventRecord({
   defaultEarliestAt: string | null;
 }) {
   const [opened, setOpened] = useState<StemEventType | null>(null);
+  // 3-4: ?record=<種類>（ホームの提案の「実施した」）で、そのイベントのダイアログを開く（この状態で記録できる種類のときだけ）。
+  // クライアント遷移で前の画面の状態が残っていても開くよう、初期値ではなく URL の変化を描画中に見て開く（React の「描画中に state を調整」）。
+  // 開いたら URL から ?record= を外す（再読み込み・PWA の復帰で同じダイアログが再び開いて二重に記録しないように）。
+  // 外した後に同じ値でもう一度来ても、null → 値 の変化として開く
+  const pathname = usePathname();
+  const record = useSearchParams().get("record");
+  const [seenRecord, setSeenRecord] = useState<string | null>(null);
+  if (record !== seenRecord) {
+    setSeenRecord(record);
+    if (record && isStemEventType(record) && canRecordEvent(status, record)) setOpened(record);
+  }
+  useEffect(() => {
+    if (record === null) return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("record");
+    const rest = params.toString();
+    window.history.replaceState(null, "", rest ? `${pathname}?${rest}` : pathname);
+  }, [record, pathname]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [lastType, setLastType] = useState<StemEventType | null>(null);

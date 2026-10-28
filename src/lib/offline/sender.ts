@@ -21,9 +21,10 @@ function fail(error: { message: string; code?: string | null; name?: string }, s
 }
 
 // 3-3: 出蕾・被害を送れたら、その茎の収穫予測日を再計算させる（/api/predictions/recompute）。
+// 3-4: 同じ呼び出しで提案も評価する。袋掛け・摘蕾・収穫を送れたら対応する提案が done、喪失（被害）なら dismissed になる。
 // 失敗してもイベントの送信は成功のまま（推定は日次の再計算・茎の画面を開いたときに追いつく）。待ってから戻るので、
 // 同期の後の router.refresh() では新しい推定が読める
-export const RECOMPUTE_EVENT_TYPES: readonly string[] = ["bud_emerged", "damage"];
+export const RECOMPUTE_EVENT_TYPES: readonly string[] = ["bud_emerged", "damage", "bagged", "debudded", "harvested"];
 
 export type RecomputeStem = (stemId: string) => Promise<void>;
 

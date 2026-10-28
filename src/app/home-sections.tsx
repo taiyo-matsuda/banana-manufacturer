@@ -20,6 +20,18 @@ export function OrganizationView({ organizationName, displayName }: { organizati
   );
 }
 
+// 提案（3-4）の枠。中身（RecommendationList）は呼び出し側。オフラインの殻では提案を読まないので理由を出す
+export function RecommendationsCardFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <Card data-testid="home-recommendations">
+      <CardHeader>
+        <CardTitle>提案</CardTitle>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
 // 今週見る株（2-7）の枠。中身（WeeklyList）は呼び出し側
 export function WeeklyCardFrame({ children }: { children: React.ReactNode }) {
   return (

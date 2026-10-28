@@ -1,4 +1,6 @@
-import { recomputeHarvestEstimates, type RecomputeResult } from "@/lib/prediction/recompute";
+import { recomputeDerived } from "@/lib/derived";
+import type { RecomputeResult } from "@/lib/prediction/recompute";
+import type { RecommendationResult } from "@/lib/recommendations/recompute";
 import { createServiceRoleClient, serviceRoleConfigured } from "@/lib/supabase/service-role";
 import { MOCK_FAULT_NAME, mockFaultFrom, weatherFetcher } from "@/lib/weather/server";
 import { SYNC_FIELD_COLUMNS, syncFieldWeather, type SyncField, type SyncResult } from "@/lib/weather/sync";
@@ -15,6 +17,7 @@ import { SYNC_FIELD_COLUMNS, syncFieldWeather, type SyncField, type SyncResult }
 // 前回の実行が古い圃場から順に処理する。
 // 3-3: 各圃場の取り込みの後、その圃場の出蕾済みの茎の収穫予測日を再計算して estimates に追記する（前回と同じなら追記しない）。
 // 取り込みに失敗しても、あるだけの気温で再計算する（欠けた日は平年値で補う）。
+// 3-4: 続けて、その圃場の提案（袋掛け・摘蕾・収穫期）を評価する（src/lib/derived.ts）。日が進んで期限に達した提案はここで出る。
 export const maxDuration = 60;
 const BUDGET_MS = 50_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,6 +73,7 @@ export async function GET(request: Request) {
   const deadline = startedAt + BUDGET_MS;
   const results: SyncResult[] = [];
   const predictions: (RecomputeResult & { fieldId: string })[] = [];
+  const recommendations: (RecommendationResult & { fieldId: string })[] = [];
   let skipped = 0;
   for (const field of ordered) {
     if (Date.now() > deadline) {
@@ -79,17 +83,21 @@ export async function GET(request: Request) {
     const r = await syncFieldWeather(db, fetchFn, field, { includeNormals: true, deadline });
     if (r.errors.length > 0) console.error("weather cron: field sync errors", field.id, r.errors);
     results.push(r);
-    const p = await recomputeHarvestEstimates(db, { fieldId: field.id });
+    const { recommendations: rec, ...p } = await recomputeDerived(db, { fieldId: field.id });
     if (p.errors.length > 0) console.error("weather cron: harvest recompute errors", field.id, p.errors);
+    if (rec.errors.length > 0) console.error("weather cron: recommendations errors", field.id, rec.errors);
     predictions.push({ fieldId: field.id, ...p });
+    recommendations.push({ fieldId: field.id, ...rec });
   }
 
   return Response.json({
-    ok: results.every((r) => r.errors.length === 0) && predictions.every((p) => p.errors.length === 0),
+    ok: results.every((r) => r.errors.length === 0) && predictions.every((p) => p.errors.length === 0) &&
+      recommendations.every((r) => r.errors.length === 0),
     processed: results.length,
     skipped,
     results,
     predictions,
+    recommendations,
     ms: Date.now() - startedAt,
   });
 }

@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { recomputeHarvestEstimates } from "@/lib/prediction/recompute";
+import { recomputeDerived } from "@/lib/derived";
 import { createClient } from "@/lib/supabase/server";
 
 // 収穫予測日の再計算（3-3、prediction.md 2 章）。茎の出蕾・被害は端末の outbox から同期ワーカーが RPC で送るので
@@ -24,9 +24,9 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
-  const result = await recomputeHarvestEstimates(supabase, { stemIds: [stemId] });
-  if (result.errors.length > 0) {
-    console.error("harvest recompute (stem event) errors", stemId, result.errors);
+  const result = await recomputeDerived(supabase, { stemIds: [stemId] });
+  if (result.errors.length > 0 || result.recommendations.errors.length > 0) {
+    console.error("recompute (stem event) errors", stemId, result.errors, result.recommendations.errors);
     return Response.json({ ok: false, ...result }, { status: 500 });
   }
   return Response.json({ ok: true, ...result });

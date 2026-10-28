@@ -4,7 +4,8 @@ import type { createClient } from "../supabase/client";
 import { newLeavesRemovedItem, newStemEventItem } from "./items";
 import { createSender } from "./sender";
 
-// 3-3: 出蕾・茎の被害を送れたら、その茎の収穫予測日を再計算させる（それ以外のイベントでは呼ばない。送信に失敗したら呼ばない）
+// 3-3: 出蕾・茎の被害を送れたら、その茎の収穫予測日を再計算させる（送信に失敗したら呼ばない）。
+// 3-4: 同じ呼び出しで提案も評価するので、袋掛け・摘蕾・収穫でも呼ぶ（段数・枯葉処理などでは呼ばない）
 type Rpc = { name: string; args: Record<string, unknown> };
 
 function fakeSupabase(options: { rpcError?: { message: string; code?: string } } = {}) {
@@ -19,7 +20,7 @@ function fakeSupabase(options: { rpcError?: { message: string; code?: string } }
   return { client: client as unknown as ReturnType<typeof createClient>, rpcs };
 }
 
-const stemEvent = (type: "bud_emerged" | "damage" | "bagged") =>
+const stemEvent = (type: "bud_emerged" | "damage" | "bagged" | "debudded" | "harvested" | "hands_counted") =>
   newStemEventItem({
     id: `e-${type}`,
     createdAt: new Date("2026-10-20T00:00:00Z"),
@@ -42,11 +43,21 @@ describe("createSender の収穫予測の再計算（3-3）", () => {
     ]);
   });
 
-  it("袋掛け・枯葉処理などでは呼ばない", async () => {
+  it("袋掛け・摘蕾・収穫を送れたら呼ぶ（3-4: 提案を done にする）", async () => {
     const { client } = fakeSupabase();
     const calls: string[] = [];
     const send = createSender({} as AppDb, client, async (stemId) => void calls.push(stemId));
     await send(stemEvent("bagged"), async () => {});
+    await send(stemEvent("debudded"), async () => {});
+    await send(stemEvent("harvested"), async () => {});
+    expect(calls).toEqual(["stem-1", "stem-1", "stem-1"]);
+  });
+
+  it("段数・枯葉処理などでは呼ばない", async () => {
+    const { client } = fakeSupabase();
+    const calls: string[] = [];
+    const send = createSender({} as AppDb, client, async (stemId) => void calls.push(stemId));
+    await send(stemEvent("hands_counted"), async () => {});
     await send(
       newLeavesRemovedItem({ id: "l1", createdAt: new Date(), stemId: "stem-1", count: 2, occurredAt: new Date(), userId: "u" }),
       async () => {},

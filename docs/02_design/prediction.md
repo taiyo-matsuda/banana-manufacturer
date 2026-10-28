@@ -105,6 +105,22 @@
 - 対象が `lost` / `harvested` / `removed` / `transplanted` になった茎の `open` な提案は自動で `dismissed` にする（reason に「対象が終了」）
 - 「実施した」= `done`、「無視」= `dismissed`。どちらも `resolved_at` / `resolved_by` を残す
 
+### 実装（3-4）
+実装: `src/lib/recommendations/`（`rules.ts` ルールの配列、`evaluate.ts` 作る・閉じるの判定、`settings.ts` 設定、`display.ts` 表示。純粋関数で単体テスト）、
+`src/lib/recommendations/recompute.ts`（DB への反映）、`src/lib/derived.ts`（収穫予測日 → 提案の順に再計算する入口）。DB は `0022_recommendations.sql`。
+
+- **ルールの形**: 1 つのルール = `kind`・`propose`（対象の事実・設定・今日 → いま出すべき提案 or null）・`completion`（open を done にする記録のイベント or null）。`STEM_RULES` に並べる。3-5 はここにルールを足す（株が対象のルールは同じ形で `targetType: "mat"` を足す）
+- **袋掛けと摘蕾は別の提案**（`bag` と `debud`。データモデルの kind のとおり）。どちらも出蕾から N 日で同時に出て、`bagged` で `bag` が、`debudded` で `debud` が done になる（片方の記録でもう片方は閉じない。事実のとおり）。理由は「出蕾から N 日（出蕾 ◯月◯日）」、期限は出蕾日（確認日 `stems.bud_emerged_at`）+ N。N を過ぎてから評価しても期限は出蕾日 + N のまま
+- **収穫期**: 最新の `harvest_date`（`latest_estimates`）の `lower_date` が「今日 + 収穫期の日数（既定 7）」以下（過ぎていても）。推定が無い・予測できなかった（日付 null）茎には出さない。期限は下限の日、理由は「積算温度が目安に近づいています（収穫予測の早い日 ◯月◯日）」。`harvested` で done、喪失で「対象が終了」の dismissed。出した後に予測が先へずれても open のまま（自動では閉じない）
+- **設定（圃場ごと）**: `field_recommendation_params`（`bag_after_days` 1〜60・空なら 14、`harvest_window_days` 0〜30・空なら 7）。圃場の詳細の「提案の設定」で変える。保存の後にその圃場の提案を評価し直す（短くすれば出る。出ている提案は閉じない）
+- **二重の防止**: `rule_key`（同じ対象・同じ kind の中で「どの出来事に対する提案か」。3-4 の 3 つは茎ごとに 1 回なので `''`。3-5 の追肥は収穫ごとに出るので収穫のイベントなどを入れる）を足し、`unique (target_type, target_id, kind, rule_key)`（状態に関係なく。**「無視」した提案はこれで再び作られない**）と、open の部分 unique `(target_type, target_id, kind) where status = 'open'` を置く。アプリは `on conflict do nothing` で追記する
+- **閉じ方**: done は対応するイベントの記録者を `resolved_by`、そのイベントを `resolved_event_id`、`resolution_note` に「袋掛けを記録」など。「対象が終了」は終了させたイベント（収穫・被害の喪失）の記録者とイベント（見つからなければ null）。「無視」はログイン中のユーザーで `resolution_note = 無視`。`resolved_at` はトリガーが now()
+- **書き換えの制限（0022 のトリガー）**: 追記は open のときだけ。更新は open → done / dismissed の 1 回だけで、中身（kind・対象・期限・理由）は変えられない。RLS は select / insert / update（delete なし）
+- **いつ評価するか**: 収穫予測日の再計算と同じ入口（2 章「再計算のタイミング」）。加えて、袋掛け・摘蕾・収穫の同期の後にも `POST /api/predictions/recompute` を呼ぶ（`RECOMPUTE_EVENT_TYPES`）。圏外で記録したイベントも、同期ワーカーが送った後にこの経路で評価されて done になる。日次の Cron（圃場ごと）で、日が進んで期限に達した提案が出る。範囲が圃場・株のときは、その中の出蕾済みの茎と open の提案がある茎（終了した茎の提案を閉じるため）を評価する
+- **「実施した」**: 記録画面へ導くだけ（`/stems/[id]?record=bagged` で茎の画面の袋掛けのダイアログを開く。摘蕾は `debudded`、収穫期は `harvested`。開いたら URL から `?record=` を外す）。提案は記録が同期された後の評価で done になる（記録しなければ open のまま。事実の記録を先にする）
+- オフラインの殻のホームでは提案を読まない（「提案はオンラインのときに表示します」）
+- **撤去・株分け（removed / transplanted）での「対象が終了」（3-4 で確認）**: removed / transplanted になるのは吸芽（status = sucker）の芽かき・株分け（0011）だけで、3-4 の提案は出蕾済みの茎にしか出ないため、その経路では閉じる提案が無い（株の撤去 0012 は栽培中・出蕾済みの茎がある株を拒否する）。そのため芽かき・株分け・撤去の後には再評価を呼ばない（呼んでも日次の Cron が範囲の open を閉じる）。**未決（3-5）**: 株が対象の提案（収穫後の追肥）を足すときは、株の撤去（mat_removed）で open を「対象が終了」にするルールと、撤去の Server Action からの再評価を決める
+
 ## 7. 被害による予測の見直し
 
 決定（3-3）:

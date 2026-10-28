@@ -5,7 +5,7 @@ import { getCurrentUser, userOrRedirect } from "@/lib/auth/current-user";
 import { type StemGdd, stemGdd, stemGddPeriod } from "@/lib/gdd";
 import { PHOTO_SIGNED_URL_TTL_SEC } from "@/lib/photos";
 import { type HarvestDisplay, harvestDisplayFrom } from "@/lib/prediction/harvest";
-import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
+import { recomputeDerivedQuietly } from "@/lib/derived";
 import { todayJst } from "@/lib/stemEvents";
 import type { EventRow, ObservationRow, PhotoRow } from "@/lib/stems/records";
 import { buildStemView, type StemView } from "@/lib/stems/view";
@@ -162,7 +162,7 @@ async function loadStemInternal(stemId: string, withGdd: boolean): Promise<StemR
       if (harvestRes?.data) return harvestRes.data as LatestHarvestRow;
       // まだ推定が無い出蕾済みの茎: 1 回計算して追記し、読み直す
       // （読み直しは estimates から。同じ GET を同じ描画の中で繰り返すと、fetch のメモ化で最初の空の結果が返る）
-      await recomputeHarvestEstimatesQuietly(supabase, { stemIds: [stemId] }, "stem page");
+      await recomputeDerivedQuietly(supabase, { stemIds: [stemId] }, "stem page");
       const { data } = await supabase
         .from("estimates")
         .select("value_date, lower_date, upper_date, inputs, computed_at")

@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { refresh } from "next/cache";
 import { requireUser } from "@/lib/auth/current-user";
-import { recomputeHarvestEstimatesQuietly } from "@/lib/prediction/recompute";
+import { recomputeDerivedQuietly } from "@/lib/derived";
 import { createClient } from "@/lib/supabase/server";
 import { MOCK_FAULT_NAME, mockFaultFrom } from "@/lib/weather/server";
 import { syncFieldWeatherAsUser } from "@/lib/weather/user-sync";
@@ -33,7 +33,7 @@ export async function syncWeatherNow(prev: WeatherNowState, formData: FormData):
 
   if (result.errors.length > 0) console.error("weather sync (manual) errors", fieldId, result.errors);
   // 3-3: 日次の取り込みと同じく、取り込んだ後にこの圃場の出蕾済みの茎の収穫予測日を再計算する
-  await recomputeHarvestEstimatesQuietly(supabase, { fieldId }, "manual weather sync");
+  await recomputeDerivedQuietly(supabase, { fieldId }, "manual weather sync");
   refresh();
   const done = prev.done + 1;
   if (result.errors.length > 0) {

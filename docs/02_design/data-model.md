@@ -30,7 +30,7 @@ cultivars（全組織で共有）
 
 | テーブル | コピー元 |
 |---|---|
-| mats, field_cultivar_params, soil_analyses, weather_*（weather_sync_status を含む） | fields |
+| mats, field_cultivar_params, field_recommendation_params, soil_analyses, weather_*（weather_sync_status を含む） | fields |
 | stems | mats |
 | observations, estimates | stems |
 | soil_analysis_items | soil_analyses |
@@ -260,6 +260,26 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | reason | text | |
 | status | enum | `open` / `done` / `dismissed` |
 | resolved_at, resolved_by | | |
+| rule_key | text | 3-4（0022）。同じ対象・同じ kind の中の「どの出来事に対する提案か」。茎ごとに 1 回の提案は `''` |
+| resolution_note | text | 3-4。閉じた理由（「袋掛けを記録」「無視」「対象が終了」など） |
+| resolved_event_id | uuid | 3-4。done にした・終了の原因のイベント（events.id。FK なし: 0006 の掃除が events を先に消すため） |
+
+- 3-4（0022）: `unique (target_type, target_id, kind, rule_key)`（状態に関係なく 1 行。「無視」した提案は再び作られない）と、open の部分 unique `(target_type, target_id, kind) where status = 'open'`
+- トリガー `guard_recommendation_write`: 追記は open・resolved_* 空のときだけ。更新は open → done / dismissed の 1 回だけで、変えられるのは status と resolved_* / resolution_note だけ。resolved_at は now()、resolved_by は渡されなければ auth.uid()（同じ組織のユーザーでなければ拒否）
+- ルールと閉じ方は prediction.md 6 章
+
+### field_recommendation_params（3-4、0022）
+圃場ごとの提案の設定。PK `field_id`（fields を on delete cascade）。organization_id は fields からトリガーでコピー。RLS は自組織（for all）。
+| 列 | 備考 |
+|---|---|
+| bag_after_days | 袋掛け・摘蕾の提案を出す日数 N（出蕾から）。1〜60。null は既定の 14 |
+| harvest_window_days | 収穫期の提案を出す日数（収穫予測の下限の何日前から）。0〜30。null は既定の 7 |
+| updated_at | |
+
+3-5 で追肥の期限 M・枯葉処理の間隔 X・圃場の標準量の列を足す。
+
+### open_recommendations（view、3-4・0022）
+ホームの「提案」用。open の提案に、対象の茎（`stem_id, generation, stem_status`）・株（`mat_id, mat_code`）・圃場（`field_id, field_name`）を left join で付ける（対象が株・圃場の提案は茎の列が null）。`security_invoker`。
 
 ### weekly_stems（view、0016。2-7 今週見る株）
 画面 1「今週見る株」を 1 回の問い合わせで引くための読み取り専用の view。`security_invoker = true`（呼び出したユーザーの RLS がそのまま効く）。
@@ -282,7 +302,8 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | organizations | 自組織 | × | × | × |
 | profiles | 自組織 | × | × | × |
 | cultivars | 全員 | × | × | × |
-| fields, field_cultivar_params, soil_*, mats, stems, weather_hourly, weather_daily, recommendations | 自組織 | 自組織 | 自組織 | 自組織 |
+| fields, field_cultivar_params, field_recommendation_params, soil_*, mats, stems, weather_hourly, weather_daily | 自組織 | 自組織 | 自組織 | 自組織 |
+| recommendations（0022 から delete なし） | 自組織 | 自組織（open のみ） | 自組織（open → done / dismissed のみ。トリガーで制限） | × |
 | estimates（0021 から追記のみ） | 自組織 | 自組織 | × | × |
 | weather_sync_status | 自組織 | ×（record_weather_sync() のみ） | 同左 | × |
 | observations, events | 自組織 | 自組織 | superseded_by のみ（トリガーで制限） | × |
@@ -296,4 +317,4 @@ RLS は自組織の select のみ。書き込みは security definer の `record
 | 検算値と確認要否 | 同上 | |
 | 積算温度 | `src/lib/gdd.ts` + weather_daily | |
 | 収穫予測日、果房重量 | `src/lib/prediction/` → estimates に追記 | 収穫予測日は 3-3（harvest.ts が計算、recompute.ts が追記） |
-| 提案 | `src/lib/recommendations/` → recommendations に追記 | |
+| 提案 | `src/lib/recommendations/` → recommendations に追記 | 3-4。評価は収穫予測日の再計算と同じ入口（`src/lib/derived.ts`）。prediction.md 6 章 |
