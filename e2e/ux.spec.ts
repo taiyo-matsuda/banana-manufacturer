@@ -352,10 +352,10 @@ test("6b. 入力欄の高さが画面をまたいで揃っている（登録フ�
   await expect(page.getByTestId("event-dialog")).toHaveCount(0);
 });
 
-test("6c. 予測タブは「準備中」のプレースホルダーで、ヘッダと下部タブがある", async ({ page }) => {
+test("6c. 予測タブは予測一覧（3-6）で、ヘッダと下部タブがある", async ({ page }) => {
   await page.goto("/forecast");
   await expect(page.getByRole("heading", { name: "予測" })).toBeVisible();
-  await expect(page.getByTestId("forecast-placeholder")).toContainText("準備中");
+  await expect(page.getByTestId("forecast-weeks")).toBeVisible();
   await expect(page.getByTestId("bottom-nav").getByTestId("nav-forecast")).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("home-link")).toBeVisible();
 });

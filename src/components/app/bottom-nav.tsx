@@ -8,7 +8,7 @@ import { useStoredValue } from "./device-store";
 
 // 下部タブ（UX-1、screens.md 3 章）: ホーム / 地図 / 予測 / 設定。
 // - 地図: 直近に開いた圃場の地図（端末に記録）。未記録なら地図用の圃場選択 /map（圃場が 1 つならその地図へ転送）
-// - 予測: /forecast（ステップ 3 まで「準備中」）
+// - 予測: /forecast（予測一覧、3-6）
 // - 設定: /fields（圃場の一覧とログアウト）
 // ログイン画面とオフライン画面には出さない。現在地のタブは aria-current="page" で強調（current 省略時はどれも強調しない）。
 // 各タブは高さ 64px（タップ領域 44px 以上）。iPhone のホームバーの分は safe-area-inset-bottom で空ける。

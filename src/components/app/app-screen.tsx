@@ -11,6 +11,7 @@ export function AppScreen({
   titleTestId,
   current,
   padded = true,
+  wide = false,
   children,
 }: {
   title: string;
@@ -21,6 +22,8 @@ export function AppScreen({
   current?: NavTab;
   // false にすると本文の左右余白と幅の制限を外す（地図）
   padded?: boolean;
+  // true にすると PC 幅（md 以上）で本文を広げる（予測一覧の表）。スマホ幅は変わらない
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -28,7 +31,7 @@ export function AppScreen({
       <PageHeader title={title} backHref={backHref} backLabel={backLabel} titleTestId={titleTestId} />
       {/* 下部タブ（h-16 + safe-area）の分の pb-28 を py-4 で上書きしない（cn は tailwind-merge） */}
       <main className={cn("flex flex-1 flex-col pb-28", padded && "px-4 pt-4")}>
-        <div className={cn("flex w-full flex-1 flex-col gap-4", padded && "mx-auto max-w-md")}>{children}</div>
+        <div className={cn("flex w-full flex-1 flex-col gap-4", padded && "mx-auto max-w-md", padded && wide && "md:max-w-4xl")}>{children}</div>
       </main>
       <BottomNav current={current} />
     </>
